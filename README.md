@@ -113,8 +113,7 @@ AQI is committed to open collaboration:
 
 ## 📞 Contact and Engagement
 
-- **Website**: [Coming Soon]
-- **Discussion Forum**: [GitHub Discussions]
+- **Website**: https://timalanaqisystem.github.io/AQI-Autonomous-Intelligence/- **Discussion Forum**:- **Wiki**: https://github.com/timalanaqisystem/AQI-Autonomous-Intelligence/wiki- **Discussion Forum**: [GitHub Discussions]
 - **Newsletter**: Subscribe for updates on AQI developments
 - **Media Inquiries**: For press and media opportunities
 
@@ -138,3 +137,4 @@ AQI development adheres to the highest ethical standards:
 **Join us in shaping the future of AI. AQI: Where Intelligence Meets Integrity.**
 
 *This repository contains promotional and informational materials only. Source code implementations are maintained separately for security and proprietary reasons.*
+
