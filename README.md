@@ -131,6 +131,7 @@ AQI development adheres to the highest ethical standards:
 - [Ethical Framework](docs/ethical-framework.md)
 - [Community Guidelines](docs/community-guidelines.md)
 - [Contributing](CONTRIBUTING.md)
+- [Public Records & Transparency](AQI_PUBLIC_RECORDS.md)
 
 ---
 
