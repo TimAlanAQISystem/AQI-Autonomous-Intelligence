@@ -13,6 +13,14 @@
 - **Transparency Level:** Full public disclosure authorized
 - **Date Recorded:** December 20, 2025
 
+### Business Service Registrations
+- **SCSDMC (Signature Card Services Direct Merchant Center)**
+  - **Service ID:** 7338950c-5163-42c1-8db0-137facd27bbe
+  - **Provider:** Microsoft
+  - **Domain:** scsdmc.com
+  - **Purpose:** Payment processing and merchant services
+  - **Date Recorded:** December 21, 2025
+
 ### Public Information Authorization
 - **Real Name:** Authorized for use in all public communications
 - **Professional Information:** Authorized for use in all public communications
