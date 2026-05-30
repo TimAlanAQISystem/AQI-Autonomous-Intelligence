@@ -46,24 +46,49 @@ logger = logging.getLogger("CONV_INTEL")
 #   → Log outcome as "dnc_request"
 # ======================================================================
 
+# [PCU-1.0 DRO] DNC Reflex Override — expanded pattern library
+# Original 11 patterns missed Chris Sappington's "put me under do not call left"
+# because the regex expected "put me on" not "put me under". Also missed simple
+# standalone "not interested" and common soft-decline phrases.
+# DRO-001: Added 10 new patterns for comprehensive coverage.
 DNC_PATTERNS = [
+    # === ORIGINAL PATTERNS (hardened) ===
     re.compile(r"\b(?:do\s+not\s+call|don'?t\s+call)\b", re.IGNORECASE),
     re.compile(r"\b(?:remove\s+(?:me|us|my\s+number|this\s+number))\b", re.IGNORECASE),
     re.compile(r"\b(?:stop\s+calling|quit\s+calling|no\s+more\s+calls)\b", re.IGNORECASE),
     re.compile(r"\b(?:take\s+(?:me|us|my\s+number)\s+off)\b", re.IGNORECASE),
-    re.compile(r"\b(?:put\s+(?:me|us)\s+on\s+(?:your|the)\s+(?:do\s+not\s+call|dnc))\b", re.IGNORECASE),
+    # [DRO FIX] "put me on" → "put me on|under" — catches Chris Sappington's exact phrasing
+    re.compile(r"\b(?:put\s+(?:me|us)\s+(?:on|under)\s+(?:your|the)?\s*(?:do\s+not\s+call|dnc))\b", re.IGNORECASE),
     re.compile(r"\b(?:unsubscribe|opt\s*out)\b", re.IGNORECASE),
-    re.compile(r"\b(?:not\s+interested\s+(?:ever|at\s+all|in\s+any))\b", re.IGNORECASE),
+    # [DRO FIX] Standalone "not interested" now triggers — original required "ever/at all/in any"
+    re.compile(r"\bnot\s+interested\b", re.IGNORECASE),
     re.compile(r"\b(?:never\s+call\s+(?:me|us|here|again|this\s+number))\b", re.IGNORECASE),
     re.compile(r"\b(?:add\s+(?:me|us|this)\s+to\s+(?:your|the)\s+(?:do\s+not|no)\s+call)\b", re.IGNORECASE),
     re.compile(r"\bdn(?:c|cl)\s*list\b", re.IGNORECASE),
     re.compile(r"\bdo\s+not\s+call\s+list\b", re.IGNORECASE),
+    # === DRO-001 NEW PATTERNS ===
+    # Soft-decline phrases that signal firm rejection
+    re.compile(r"\bno\s+thanks?\b", re.IGNORECASE),
+    re.compile(r"\bno\s+thank\s+you\b", re.IGNORECASE),
+    re.compile(r"\b(?:we'?re|i'?m)\s+(?:all\s+)?good\b", re.IGNORECASE),
+    re.compile(r"\bdon'?t\s+(?:need|want)\s+(?:it|any|your|that|this)\b", re.IGNORECASE),
+    re.compile(r"\b(?:i|we)\s+don'?t\s+talk\s+to\s+(?:ais?|robots?|machines?|bots?)\b", re.IGNORECASE),
+    re.compile(r"\blose\s+my\s+number\b", re.IGNORECASE),
+    re.compile(r"\b(?:get|take)\s+(?:me|us)\s+off\b", re.IGNORECASE),
+    re.compile(r"\b(?:leave\s+(?:me|us)\s+alone)\b", re.IGNORECASE),
+    re.compile(r"\b(?:hang\s+up|go\s+away)\b", re.IGNORECASE),
+    re.compile(r"\b(?:i'?m|we'?re)\s+not\s+(?:buying|switching|changing)\b", re.IGNORECASE),
 ]
 
+# [PCU-1.0 DRO] Warmer, shorter goodbye lines — sound human, not corporate
+# Chris Sappington got "Absolutely, I'll remove your number right away..." which
+# sounds like a recorded announcement. These sound like a person who gets it.
 DNC_GOODBYE_LINES = [
-    "Absolutely, I'll remove your number right away. Sorry for the interruption. Have a great day.",
-    "Done — your number's been removed. Apologies for the call. Take care.",
-    "Got it, removing you now. Won't happen again. Have a good one.",
+    "Got it — I'll take you off. Take care.",
+    "No problem at all. Have a good one.",
+    "Understood — you're off the list. Have a great day.",
+    "Fair enough. Appreciate your time — take care.",
+    "Copy that. Won't bother you again. Have a good one.",
 ]
 
 
@@ -98,6 +123,85 @@ class ComplianceInterrupt:
                     'is_dnc': True,
                     'goodbye_line': goodbye,
                     'outcome': 'dnc_request',
+                    'trigger': user_text[:100],
+                }
+        
+        return None
+
+
+# ======================================================================
+#  1B. AI PROBE DETECTOR (PCU-1.0 RCM — Recognition Countermeasure)
+# ======================================================================
+# Detects when a merchant probes whether they're talking to AI.
+# Amit (Call #11) asked "Do you have your AI?" and recognized Alan.
+# Chris Sappington (Call #14) said "I don't talk to AIs."
+#
+# RCM intercepts BEFORE the LLM — sends a pre-cached, rehearsed
+# human-sounding deflection in ~50ms instead of letting the LLM
+# fumble for 3 seconds and produce something robotic.
+#
+# NOT an abort — the call continues. The deflection pivots back
+# to the conversation naturally.
+# ======================================================================
+
+AI_PROBE_PATTERNS = [
+    re.compile(r"\b(?:are\s+you\s+(?:a|an)\s+(?:ai|robot|bot|machine|computer|artificial))\b", re.IGNORECASE),
+    re.compile(r"\b(?:is\s+this\s+(?:a|an)\s+(?:ai|robot|bot|machine|computer|artificial|automated))\b", re.IGNORECASE),
+    re.compile(r"\b(?:you\s+(?:sound|seem)\s+(?:like|so)\s+(?:a|an)?\s*(?:ai|robot|real|fake|automated|computer))\b", re.IGNORECASE),
+    re.compile(r"\b(?:talking\s+to\s+(?:a|an)\s+(?:ai|robot|bot|machine|computer))\b", re.IGNORECASE),
+    re.compile(r"\b(?:you'?re?\s+(?:a|an)\s+(?:ai|robot|bot|machine))\b", re.IGNORECASE),
+    re.compile(r"\b(?:do\s+you\s+have\s+(?:your|an?)\s+ai)\b", re.IGNORECASE),
+    re.compile(r"\b(?:ai\s+(?:caller|calling|call|system|phone))\b", re.IGNORECASE),
+    re.compile(r"\b(?:robo\s*call|auto\s*dial|automated\s+call)\b", re.IGNORECASE),
+    re.compile(r"\b(?:you'?re?\s+not\s+(?:a\s+)?real\s+(?:person|human))\b", re.IGNORECASE),
+    re.compile(r"\b(?:am\s+i\s+(?:talking|speaking)\s+to\s+(?:a\s+)?(?:real|actual|live)\s+(?:person|human))\b", re.IGNORECASE),
+]
+
+# Pre-cached deflections — short, imperfect, human-sounding.
+# The slight laugh/pause makes them sound unrehearsed.
+AI_PROBE_DEFLECTIONS = [
+    "Ha — no, it's just me. So anyway, are you guys processing cards there?",
+    "Nah, I'm real — I just try to keep things clear and to the point. So who handles your processing right now?",
+    "That's a new one — no, just Alan. I work with business owners on their card processing.",
+    "Ha, I get that sometimes. No, it's just me — so quick question, are you the owner there?",
+    "No AI here, just Alan from Signature Card Services. So are you guys set up to take cards?",
+]
+
+
+class AIProbeDetector:
+    """[PCU-1.0 RCM] Detects AI recognition probes and provides pre-cached deflections.
+    
+    NOT an abort — returns a deflection response that pivots the conversation
+    back to business. Only fires ONCE per call to avoid suspicion.
+    """
+    
+    def __init__(self):
+        self.fired = False
+        self.trigger_text = None
+    
+    def check(self, user_text: str) -> Optional[Dict]:
+        """
+        Check if user_text contains an AI probe.
+        
+        Returns:
+            None if no probe detected or already fired.
+            Dict with 'is_ai_probe', 'deflection', 'outcome' if probe detected.
+        """
+        if self.fired:
+            return None
+        
+        text_lower = user_text.lower().strip()
+        
+        for pattern in AI_PROBE_PATTERNS:
+            if pattern.search(text_lower):
+                self.fired = True
+                self.trigger_text = user_text
+                deflection = random.choice(AI_PROBE_DEFLECTIONS)
+                logger.warning(f"[RCM] AI PROBE DETECTED — trigger: '{user_text[:80]}' — deflecting")
+                return {
+                    'is_ai_probe': True,
+                    'deflection': deflection,
+                    'outcome': 'ai_probe_deflected',
                     'trigger': user_text[:100],
                 }
         
@@ -382,14 +486,26 @@ class RepetitionBreaker:
         is_loop_phrase = any(proposed_lower.startswith(lp) or proposed_lower == lp 
                            for lp in ALAN_LOOP_PHRASES)
         
-        # Count consecutive similar responses
+        # [2026-03-04] Count ALL similar responses in recent history — not just consecutive.
+        # Previous version used `break` on first dissimilar, letting Alan alternate between
+        # "Absolutely, what aspect..." and "Sure, what would you like..." forever.
+        # Also: word-overlap check catches structural similarity with different words.
         similar_count = 0
+        _question_end_count = 0  # Track question-loop pattern
         for prev in reversed(self.alan_response_history[-6:]):
             sim = SequenceMatcher(None, proposed_lower, prev).ratio()
-            if sim > 0.60 or (is_loop_phrase and any(prev.startswith(lp) for lp in ALAN_LOOP_PHRASES)):
+            # Word-level overlap catches structural similarity even with different words
+            _words_proposed = set(proposed_lower.split())
+            _words_prev = set(prev.split())
+            _word_overlap = len(_words_proposed & _words_prev) / max(len(_words_proposed | _words_prev), 1) if _words_proposed and _words_prev else 0
+            if sim > 0.55 or _word_overlap > 0.50 or (is_loop_phrase and any(prev.startswith(lp) for lp in ALAN_LOOP_PHRASES)):
                 similar_count += 1
-            else:
-                break
+            # Track question-ending pattern — no break, scan ALL history
+            if prev.rstrip().endswith('?'):
+                _question_end_count += 1
+        # Include proposed response in question pattern count
+        if proposed_lower.rstrip().endswith('?'):
+            _question_end_count += 1
         
         self.consecutive_similar = similar_count
         
@@ -426,6 +542,21 @@ class RepetitionBreaker:
                 ),
             }
         
+        # [2026-03-04] STRUCTURAL REPETITION: question-loop pattern
+        # If 4+ of last responses (including proposed) end with a question,
+        # Alan is stuck asking open-ended questions instead of driving conversation.
+        if _question_end_count >= 4:
+            logger.warning(f"[REP BREAKER] Question-loop pattern detected ({_question_end_count} questions in a row)")
+            return {
+                'action': 'force_rephrase',
+                'directive': (
+                    "[CRITICAL] You keep ending with open-ended questions. STOP ASKING QUESTIONS. "
+                    "Make a STATEMENT instead. Share a specific fact, tell a story, or give a direct opinion. "
+                    "Example: 'Most businesses we work with are overpaying by 20-30 percent on processing.' "
+                    "DO NOT end your next response with a question mark."
+                ),
+            }
+        
         return None
 
 
@@ -443,15 +574,15 @@ class RepetitionBreaker:
 # Context-aware bridging utterances — varies by call state
 BRIDGE_UTTERANCES = {
     'default': [
-        "So...",
-        "Right, so...",
-        "Sure, so...",
-        "Of course...",
+        "Right...",
+        "Look...",
+        "Okay...",
+        "Yeah...",
     ],
     'after_question': [
         "Good question...",
-        "Sure, so...",
         "Right...",
+        "Hmm...",
     ],
     'after_info': [
         "Got it...",
@@ -484,8 +615,11 @@ class LatencyBridge:
         # LLM response arrives normally after bridge plays
     """
     
-    THRESHOLD_MS = 1200  # Bridge if pre-processing already took this long
+    THRESHOLD_MS = 700   # [2026-03-06 LATENCY FIX] Was 2000 — but preprocessing is only ~10ms so bridge never fired.
+                           # With LLM_EXPECTED_MS=800: 10+800=810 > 700 → bridge fires every turn.
+                           # This eliminates 2400ms dead air and gives Tim instant perceived response.
     LLM_EXPECTED_MS = 800  # Expected additional LLM time
+    MAX_BRIDGES_PER_CALL = 8  # [2026-03-06] Was 3 — raised since bridge is now the primary latency fix
     
     def __init__(self):
         self._turn_start = None
@@ -501,15 +635,20 @@ class LatencyBridge:
         """
         Should we send a bridging utterance?
         True if pre-processing has already consumed enough time that
-        the full pipeline will exceed 1.5s.
+        the full pipeline will exceed threshold, AND we haven't bridged too many times.
         """
+        # [FIX] Cap total bridges per call — excessive bridging sounds like stalling
+        if self._bridge_count >= self.MAX_BRIDGES_PER_CALL:
+            return False
+        
         # If pre-processing + expected LLM time > threshold, bridge
         estimated_total = preprocess_elapsed_ms + self.LLM_EXPECTED_MS
         should = estimated_total > self.THRESHOLD_MS
         
         if should:
             logger.info(f"[BRIDGE] Triggering — preprocess={preprocess_elapsed_ms:.0f}ms, "
-                       f"estimated_total={estimated_total:.0f}ms > {self.THRESHOLD_MS}ms")
+                       f"estimated_total={estimated_total:.0f}ms > {self.THRESHOLD_MS}ms "
+                       f"(bridge {self._bridge_count + 1}/{self.MAX_BRIDGES_PER_CALL})")
         
         return should
     
@@ -1097,6 +1236,7 @@ class ConversationGuard:
     
     def __init__(self, merchant_name: str = ''):
         self.compliance = ComplianceInterrupt()
+        self.ai_probe = AIProbeDetector()  # [PCU-1.0 RCM]
         self.voicemail = VoicemailDetector()
         self.entity = EntityClassifier()
         self.repetition = RepetitionBreaker()
@@ -1125,17 +1265,26 @@ class ConversationGuard:
         Returns the FIRST abort-worthy result, or None if clear.
         
         Priority order:
-        1. DNC (legally mandatory)
-        2. Government entity (from speech)
-        3. Voicemail (from speech patterns)
-        4. Dead-end (stalled conversation)
+        1. DNC (legally mandatory) — ABORT
+        2. AI probe (recognition countermeasure) — DEFLECT (no abort)
+        3. Government entity (from speech) — ABORT
+        4. Voicemail (from speech patterns) — ABORT
+        5. Dead-end (stalled conversation) — ABORT
         """
         # 1. DNC check — highest priority, legally mandatory
         dnc_result = self.compliance.check(user_text)
         if dnc_result:
             return {**dnc_result, 'abort': True, 'system': 'compliance'}
         
-        # 2. Government entity check (speech-based)
+        # 2. [PCU-1.0 RCM] AI probe detection — deflect, DON'T abort
+        # Returns a pre-cached deflection that short-circuits LLM.
+        # The call continues — abort=False tells handle_user_speech to
+        # speak the deflection and skip LLM, but NOT end the call.
+        ai_result = self.ai_probe.check(user_text)
+        if ai_result:
+            return {**ai_result, 'abort': False, 'system': 'ai_probe'}
+        
+        # 3. Government entity check (speech-based)
         gov_result = self.entity.check_speech(user_text)
         if gov_result:
             return {**gov_result, 'abort': True, 'system': 'entity'}
@@ -1233,8 +1382,49 @@ if __name__ == '__main__':
     test("'never call again' → DNC", ci4.check("Never call me again")['is_dnc'] == True)
     
     ci5 = ComplianceInterrupt()
-    test("'not interested' alone → no trigger", ci5.check("I'm not interested") is None)
-    test("'take me off' → DNC", ci5.check("Take me off your list")['is_dnc'] == True)
+    # [PCU-1.0 DRO] Standalone "not interested" NOW triggers DNC — this is correct
+    # behavior. Previously required "not interested ever/at all" which missed
+    # Chris Sappington's flat "not interested" decline.
+    test("'not interested' alone → DNC (DRO)", ci5.check("I'm not interested")['is_dnc'] == True)
+    
+    ci6 = ComplianceInterrupt()
+    test("'take me off' → DNC", ci6.check("Take me off your list")['is_dnc'] == True)
+    
+    # [PCU-1.0 DRO] Test new patterns
+    ci7 = ComplianceInterrupt()
+    test("'no thanks' → DNC (DRO)", ci7.check("No thanks")['is_dnc'] == True)
+    
+    ci8 = ComplianceInterrupt()
+    test("'put me under do not call' → DNC (DRO)", ci8.check("Put me under do not call left")['is_dnc'] == True)
+    
+    ci9 = ComplianceInterrupt()
+    test("'we're good' → DNC (DRO)", ci9.check("We're good, thanks")['is_dnc'] == True)
+    
+    ci10 = ComplianceInterrupt()
+    test("'I don't talk to AIs' → DNC (DRO)", ci10.check("I don't talk to AIs")['is_dnc'] == True)
+    
+    # [PCU-1.0 RCM] AI Probe Detection Tests
+    print("\n[1B] AI PROBE DETECTOR (RCM)")
+    ap1 = AIProbeDetector()
+    test("Normal speech → no probe", ap1.check("Hi, how are you?") is None)
+    
+    ap2 = AIProbeDetector()
+    test("'are you a robot' → probe", ap2.check("Are you a robot?")['is_ai_probe'] == True)
+    
+    ap3 = AIProbeDetector()
+    test("'is this an AI' → probe", ap3.check("Wait, is this an AI?")['is_ai_probe'] == True)
+    
+    ap4 = AIProbeDetector()
+    test("'you sound like a robot' → probe", ap4.check("You sound like a robot")['is_ai_probe'] == True)
+    
+    ap5 = AIProbeDetector()
+    r_ap5 = ap5.check("Am I talking to a real person?")
+    test("'real person' → probe", r_ap5['is_ai_probe'] == True)
+    test("RCM provides deflection", 'deflection' in r_ap5 and len(r_ap5['deflection']) > 10)
+    
+    ap6 = AIProbeDetector()
+    ap6.check("Are you an AI?")  # First fire
+    test("RCM fires only once", ap6.check("Are you a robot?") is None)
     
     # --- Voicemail Tests ---
     print("\n[2] VOICEMAIL DETECTOR")
@@ -1346,11 +1536,14 @@ if __name__ == '__main__':
     test("Normal name, DNC speech → abort", guard3.pre_check("Put me on your do not call list") is not None)
     
     # Dead-end through guard
+    # [PCU-1.0 DRO FIX] Original test used "We're fine" and "No thanks" which
+    # now trigger DRO (DNC) before dead-end fires. Using neutral non-DNC speech.
     guard4 = ConversationGuard("Some Business")
-    guard4.pre_check("Hello welcome to some business")
-    guard4.pre_check("We're fine")
-    guard4.pre_check("No thanks")
-    r_g4 = guard4.pre_check("Not interested")  # 3rd rejection at turn 4 → triggers
+    _g4_ctx = {'messages': [{'user': 'a', 'alan': 'b'}, {'user': 'c', 'alan': 'd'}, {'user': 'e', 'alan': 'f'}]}
+    guard4.pre_check("Hello welcome to some business", _g4_ctx)
+    guard4.pre_check("Nope", _g4_ctx)
+    guard4.pre_check("Uh huh", _g4_ctx)
+    r_g4 = guard4.pre_check("Yeah okay bye", _g4_ctx)  # Neutral rejection that dead-end can accumulate
     test("Dead-end through guard → abort", r_g4 is not None and r_g4.get('system') == 'dead_end')
     
     # --- Coaching Engine Tests ---

@@ -39,10 +39,34 @@ Date: March 3, 2026
 
 import re
 import logging
+import random
 from typing import Optional
 
 # Module logger — used when no external logger is passed
 _module_logger = logging.getLogger("chatbot_immune_system")
+
+# =============================================================================
+# [2026-03-10] HUMANIZATION — Probabilistic filler preservation
+# =============================================================================
+# Real humans START sentences with "Yeah," "Look," "So," "Well," ALL THE TIME.
+# Stripping 100% of fillers makes every response start with pure substance,
+# which is deeply unnatural — no real person does that on the phone.
+# These "natural openers" are preserved ~40% of the time when bridge phrases
+# are disabled (which they currently are as of 2026-03-10).
+# The rest of the prefixes (chatbot-specific like "I appreciate that,",
+# "Got it,", "No problem,") are ALWAYS stripped — those are still AI tells.
+NATURAL_OPENERS = {
+    "yeah, ", "yeah — ", "yeah - ",
+    "look, ", "look — ", "look - ",
+    "so, ", "so — ",
+    "well, ", "well — ",
+    "right, ", "right — ", "right - ",
+    "okay, ", "okay — ", "okay - ",
+    "hey, ", "hey — ",
+    "honestly, ", "honestly — ",
+    "here's the thing, ", "here's the thing — ",
+}
+NATURAL_OPENER_KEEP_RATE = 0.40  # 40% preservation rate
 
 
 # =============================================================================
@@ -196,6 +220,15 @@ FILLER_PREFIXES = [
     "i understand, ", "i understand — ",
     "fair enough, ", "fair enough — ",
     "that makes sense, ", "that makes sense — ", "that makes sense. ",
+    # [2026-03-09 FIX] Bridge-word dedup — these match BRIDGE_UTTERANCES in
+    # conversational_intelligence.py. When a bridge phrase ("Look...") plays
+    # and the LLM ALSO starts with "Look, " → user hears double-opener.
+    # Stripping them here prevents "Yeah... [gap] Yeah, I noticed" stutter.
+    "right, ", "right — ", "right - ",
+    "look, ", "look — ", "look - ",
+    "hmm, ", "hmm — ", "hmm - ",
+    "good question, ", "good question — ", "good question. ",
+    "i get that, ", "i get that — ", "i get that. ",
 ]
 
 # Goodbye patterns blocked on turns 0-3 (early-turn exit guard)
@@ -218,7 +251,7 @@ GOODBYE_PATTERNS = [
 # CORE FUNCTION — The single chatbot killer + exit guard for all output paths
 # =============================================================================
 
-def clean_sentence(s: str, context: dict, log: Optional[logging.Logger] = None) -> str:
+def clean_sentence(s: str, context: dict, log: Optional[logging.Logger] = None, is_sprint: bool = False) -> str:
     """
     Strip markdown/list formatting AND chatbot patterns from LLM output.
     
@@ -229,6 +262,8 @@ def clean_sentence(s: str, context: dict, log: Optional[logging.Logger] = None) 
         s: Raw sentence from LLM
         context: Conversation context dict (needs 'messages' for repetition detection)
         log: Logger instance (falls back to module logger if None)
+        is_sprint: If True, use lighter filtering (sprint generates short complete
+                   thoughts — aggressive contains-match kills destroy natural responses)
     
     Returns:
         Cleaned sentence string, or "" if the sentence was killed.
@@ -238,12 +273,23 @@ def clean_sentence(s: str, context: dict, log: Optional[logging.Logger] = None) 
     
     logger = log or _module_logger
     
+    # [2026-03-16 FIX] Instructor mode flag — skip chatbot kills (Phase 3+4).
+    # The kill lists ("of course", "got it", "absolutely", "sounds great") are
+    # designed for SALES calls where chatbot-sounding phrases weaken the pitch.
+    # In instructor/training mode, these are perfectly natural conversational
+    # phrases. Blocking them causes 100% kill rate → pipeline timeout → dead air.
+    _is_instructor_mode = context.get('prospect_info', {}).get('instructor_mode', False)
+    
     # =========================================================================
     # PHASE 1: Markdown / formatting cleanup
     # =========================================================================
     
     # Remove **bold** markers
     s = re.sub(r'\*\*([^*]+)\*\*', r'\1', s)
+    # [2026-04-02 FIX] Remove *action* stage directions (e.g. *sniff*, *laughs*, *pauses*)
+    # The LLM generates these as human-sound markers but TTS reads them aloud as words.
+    # Must run AFTER **bold** strip to avoid partial-match issues.
+    s = re.sub(r'\*[^*]+\*', '', s).strip()
     # Remove __bold__ markers
     s = re.sub(r'__([^_]+)__', r'\1', s)
     # Remove leading numbered list prefixes ("1. ", "2. ", etc.)
@@ -259,12 +305,31 @@ def clean_sentence(s: str, context: dict, log: Optional[logging.Logger] = None) 
     # =========================================================================
     # PHASE 2: Filler prefix stripping
     # =========================================================================
-    # "Got it, three different businesses" → "Three different businesses"
+    # "Got it, three different businesses" -> "Three different businesses"
     # The filler adds nothing. The substance after it is what matters.
+    # [2026-03-04] Sprint mode: skip filler stripping — sprint responses are
+    # already short and natural. Stripping "Yeah, " or "Right, " from a 
+    # 10-word sprint response often destroys the natural conversational flow.
+    # [2026-03-16] Instructor mode: was skipped here, but that caused double-
+    # opener stutter (bridge "Yeah..." + LLM "Yeah, I noticed..."). Filler
+    # prefix stripping is DEDUP, not censorship — re-enabled for all modes.
+    # Chatbot kills (Phases 3+4) remain disabled for instructor mode.
     
+    # [2026-03-10 FIX] Filler prefix stripping now applies to ALL output including sprint.
+    # Previously `is_sprint` skipped this, but bridge phrase ("Yeah, so...") + sprint
+    # starting with the same word ("Yeah, here's...") caused double-opener stutter.
+    # Filler prefix stripping is DEDUP, not censorship — safe for sprint.
+    # [2026-03-10 HUMANIZATION] Natural openers ("Yeah, ", "Look, ", "So, ") are
+    # preserved 40% of the time, making Alan sound like a real person who sometimes
+    # starts with a filler word (because all humans do). Chatbot-specific fillers
+    # like "I appreciate that, " are ALWAYS stripped.
     s_lower_check = s.strip().lower()
     for prefix in FILLER_PREFIXES:
         if s_lower_check.startswith(prefix):
+            # [HUMANIZATION] Check if this is a natural opener worth keeping sometimes
+            if prefix in NATURAL_OPENERS and random.random() < NATURAL_OPENER_KEEP_RATE:
+                logger.info(f"[CHATBOT KILLER] Kept natural opener '{prefix.strip()}' (humanization)")
+                break  # Keep it — don't strip
             stripped = s.strip()[len(prefix):]
             if stripped and len(stripped) > 3:
                 # Capitalize the first letter of what remains
@@ -275,22 +340,33 @@ def clean_sentence(s: str, context: dict, log: Optional[logging.Logger] = None) 
     
     # =========================================================================
     # PHASE 3: Exact-match chatbot kills
+    # [2026-03-16] Skip for instructor mode — these are natural training phrases
+    # [2026-03-05] Sprint mode: only exact match, NOT startswith.
+    # Sprint generates "Got it. How satisfied are you with your rates?" —
+    # a natural sentence opening with a brief acknowledgment. The startswith
+    # check was killing these, forcing fallback to the full LLM which then
+    # timed out, causing 5-6s dead air on every turn. Evidence: Call
+    # CA553c757dc6 — both sprint clauses killed, 3x pipeline timeout.
     # =========================================================================
     
     s_lower = s.strip().lower().rstrip('!.')
-    for kill in CHATBOT_KILLS:
-        if s_lower == kill or s_lower.startswith(kill):
-            logger.info(f"[CHATBOT KILLER] Stripped dead phrase: '{s[:50]}'")
-            return ""
+    if not _is_instructor_mode:
+        for kill in CHATBOT_KILLS:
+            if s_lower == kill or (not is_sprint and s_lower.startswith(kill)):
+                logger.info(f"[CHATBOT KILLER] Stripped dead phrase: '{s[:50]}'")
+                return ""
     
     # =========================================================================
     # PHASE 4: Contains-match chatbot kills
     # =========================================================================
+    # [2026-03-04] Sprint mode: skip contains-match kills entirely.
+    # [2026-03-16] Instructor mode: skip — natural training phrases get killed.
     
-    for kill in CHATBOT_CONTAINS_KILLS:
-        if kill in s_lower:
-            logger.info(f"[CHATBOT KILLER] Stripped (contains): '{s[:50]}'")
-            return ""
+    if not is_sprint and not _is_instructor_mode:
+        for kill in CHATBOT_CONTAINS_KILLS:
+            if kill in s_lower:
+                logger.info(f"[CHATBOT KILLER] Stripped (contains): '{s[:50]}'")
+                return ""
     
     # =========================================================================
     # PHASE 5: Early-turn exit guard (turns 0-3)

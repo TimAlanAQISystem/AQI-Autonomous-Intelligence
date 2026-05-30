@@ -55,9 +55,12 @@ class TelephonyHealthState(IntEnum):
 FRAME_WINDOW = 250
 
 # Silence detection — % of frames below speech threshold in window
+# [2026-03-03] Raised UNUSABLE from 0.97→0.99: Normal LLM gaps (3-5s) push
+# silence ratio to 0.97 even when the call is productive. Only trigger
+# UNUSABLE on near-total silence (dead line).
 SILENCE_RATIO_DEGRADED = 0.85    # >85% silence in window → DEGRADED
 SILENCE_RATIO_POOR = 0.92        # >92% silence → POOR
-SILENCE_RATIO_UNUSABLE = 0.97    # >97% silence → UNUSABLE
+SILENCE_RATIO_UNUSABLE = 0.99    # >99% silence → UNUSABLE (was 0.97)
 
 # RMS thresholds
 RMS_SPEECH_THRESHOLD = 400       # Below this = silence frame
@@ -76,19 +79,21 @@ ASR_WINDOW_SIZE = 8
 
 # Sustained poor state before escalation (seconds)
 SUSTAINED_POOR_THRESHOLD_S = 15.0
-SUSTAINED_UNUSABLE_THRESHOLD_S = 8.0
+SUSTAINED_UNUSABLE_THRESHOLD_S = 15.0  # Was 8.0 — too aggressive, killed call after 5.7s LLM gap (2026-03-03)
 
 # Minimum call duration before telephony health can trigger exit (seconds)
 # Prevents false kills during initial silence before greeting plays
-MIN_CALL_AGE_FOR_EXIT_S = 20.0
+# [2026-03-03] Raised from 20→35: First 3 turns often have LLM-induced silence gaps.
+# A 30-second call with 2 productive turns should never be killed for dead air.
+MIN_CALL_AGE_FOR_EXIT_S = 35.0
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # CANONICAL PHRASES
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 REPAIR_PHRASE = (
-    "I'm getting a little bit of noise on my side — "
-    "let me repeat that more clearly."
+    "Hey, the line might be a little rough — "
+    "bear with me here."
 )
 
 POOR_DIRECTIVE = (
@@ -168,14 +173,35 @@ class TelephonyHealthMonitor:
         # Repair tracking — only send repair phrase once
         self._repair_sent: bool = False
 
+        # [2026-03-03] Processing pause — when Alan is generating a response,
+        # silence is expected. Don't count it as line degradation.
+        self._processing_paused: bool = False
+
         # State transition log
         self._transitions: list = []
+
+    # ── Processing Pause (LLM thinking) ───────────────────────────────
+
+    def pause_during_processing(self):
+        """Call when LLM processing begins — silence is expected, not a line issue."""
+        self._processing_paused = True
+
+    def resume_after_processing(self):
+        """Call when TTS audio starts playing — resume monitoring."""
+        self._processing_paused = False
 
     # ── Frame Processing ──────────────────────────────────────────────
 
     def process_frame(self, rms: int):
         """Process one inbound audio frame (called every ~20ms)."""
         self._total_frames += 1
+
+        # [2026-03-03] During LLM processing, inject synthetic speech-level frames
+        # so silence during thinking doesn't degrade telephony health.
+        if self._processing_paused:
+            self._frame_energies.append(max(rms, RMS_SPEECH_THRESHOLD + 1))
+            return
+
         is_silence = rms < RMS_SPEECH_THRESHOLD
         self._frame_energies.append(rms)
         if is_silence:

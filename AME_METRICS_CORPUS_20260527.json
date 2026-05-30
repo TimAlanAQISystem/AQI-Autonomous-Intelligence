@@ -1,0 +1,1728 @@
+{
+  "corpus_metadata": {
+    "extraction_date": "2026-05-27T00:00:00Z",
+    "extraction_session_id": "20260527_AME_HARVEST",
+    "scope": "ALL_PAST_AQI_AND_ALAN_SESSIONS",
+    "framework_version": "AQI_v4.1_Production",
+    "total_metrics": 847,
+    "validation_status": "COMPLETE",
+    "completeness_check": true,
+    "duplication_check": true,
+    "drift_check": true,
+    "governance_alignment_check": true
+  },
+  "ARCHITECTURAL_METRICS": [
+    {
+      "metric_id": "ARCH_001",
+      "name": "System_Topology_Layers",
+      "description": "5-layer architecture topology",
+      "source": "ARCHITECTURE_MAP_MARCH2026.md",
+      "layers": [
+        {
+          "layer": 1,
+          "name": "TELEPHONY_Signal_Transport",
+          "organs": 3,
+          "primary_file": "control_api_fixed.py",
+          "locs": 2811,
+          "responsibilities": [
+            "HTTP_endpoint_management",
+            "Twilio_webhook_reception",
+            "Governor_watchdog",
+            "Atomic_tunnel_manager",
+            "Call_lifecycle_FSM",
+            "Hypercorn_ASGI_server"
+          ],
+          "port": 8777,
+          "protocol": "ASGI_HTTP_plus_WebSocket"
+        },
+        {
+          "layer": 2,
+          "name": "PERCEPTION_Environmental_Sensing",
+          "organs": 5,
+          "primary_file": "ivr_detector.py",
+          "locs": 622,
+          "responsibilities": [
+            "IVR_detection_5_layer",
+            "ASR_dual_path_Groq_OpenAI",
+            "Sensory_fusion_dead_air_IVR_connection_loss",
+            "Silence_threshold_tuning",
+            "Call_data_full_fidelity_capture",
+            "Prosody_aware_VAD"
+          ],
+          "latency_target_ms": 300
+        },
+        {
+          "layer": 3,
+          "name": "COGNITION_Thought_Generation",
+          "organs": 8,
+          "primary_file": "agent_alan_business_ai.py",
+          "locs": 6200,
+          "responsibilities": [
+            "Brain_layer_LLM_interface",
+            "3_tier_prompt_system",
+            "TTKI_turn_by_turn_knowledge",
+            "Sales_Intelligence_OS",
+            "12D_behavioral_physics",
+            "Mission_switch_doctrine",
+            "QPC_multi_hypothesis_branching",
+            "Continuum_field_evolution"
+          ],
+          "llm_models": ["GPT-4o-mini", "GPT-4-Turbo"],
+          "prompt_tiers": ["FAST_PATH_2708_chars", "MIDWEIGHT_3734_chars", "FULL_4093_5215_chars"]
+        },
+        {
+          "layer": 4,
+          "name": "GOVERNANCE_Constitutional_Enforcement",
+          "organs": 6,
+          "primary_file": "CONSTITUTIONAL_CORE/soul_core.py",
+          "locs": "~9_files_forensic_vault",
+          "responsibilities": [
+            "Constitutional_6_Articles",
+            "Ethics_override_SAP_1",
+            "Authority_chain_validation",
+            "Decision_packet_governance",
+            "FSM_arbitration",
+            "Health_binding",
+            "Supervision_limits"
+          ],
+          "articles": 6,
+          "test_coverage": "68/68_PASS"
+        },
+        {
+          "layer": 5,
+          "name": "SUPERVISION_Observation_Intelligence",
+          "organs": 5,
+          "primary_file": "phase4_trace_exporter.py",
+          "locs": "~2500_total",
+          "responsibilities": [
+            "Phase_4_canonical_telemetry",
+            "Phase_5_behavioral_profiling",
+            "Campaign_governance",
+            "Health_monitoring",
+            "5_way_outcome_vectors"
+          ],
+          "telemetry_coverage": "comprehensive_per_call",
+          "test_coverage": "120/120_PASS"
+        }
+      ]
+    },
+    {
+      "metric_id": "ARCH_002",
+      "name": "Module_Definitions",
+      "description": "Core structural modules and their purposes",
+      "source": "core_production_files.md",
+      "modules": [
+        {
+          "name": "control_api_fixed.py",
+          "purpose": "Primary server, call governor, endpoints",
+          "locs": 2811,
+          "critical": true,
+          "never_alternate": "control_api.py"
+        },
+        {
+          "name": "aqi_conversation_relay_server.py",
+          "purpose": "Voice pipeline hub, WebSocket listener, organ orchestrator",
+          "locs": 11627,
+          "critical": true,
+          "ports": ["9000_WebSocket"]
+        },
+        {
+          "name": "agent_alan_business_ai.py",
+          "purpose": "AI brain, prompts, LLM tier selection",
+          "locs": 6200,
+          "critical": true,
+          "integration_points": ["TTKI", "Sales_OS", "LLM_dispatch"]
+        },
+        {
+          "name": "neural_flow_cortex.py",
+          "purpose": "Central nervous system, 12D behavioral synthesis, Mission Switch Doctrine",
+          "locs": 1859,
+          "critical": true,
+          "key_algorithm": "Mission_Switch_Doctrine_3_states"
+        },
+        {
+          "name": "cross_call_intelligence.py",
+          "purpose": "CCNM accumulated learning engine, SessionSeed generation",
+          "locs": 1034,
+          "critical": false,
+          "enhancement": true
+        },
+        {
+          "name": "call_lifecycle_fsm.py",
+          "purpose": "Explicit call state machine, replaces CALL_IN_PROGRESS boolean",
+          "locs": 400,
+          "critical": true,
+          "states": 9,
+          "state_timeouts": true
+        }
+      ]
+    },
+    {
+      "metric_id": "ARCH_003",
+      "name": "Voice_Audio_Stack",
+      "description": "TTS and ASR integration architecture",
+      "source": "ARCHITECTURE_MAP_MARCH2026.md",
+      "components": [
+        {
+          "name": "Groq_Whisper_ASR",
+          "role": "Primary ASR",
+          "latency_target_ms": 300,
+          "language": "English"
+        },
+        {
+          "name": "OpenAI_Whisper_ASR",
+          "role": "Fallback_ASR",
+          "fallback_priority": 1,
+          "language": "English"
+        },
+        {
+          "name": "GPT_4o_mini_TTS",
+          "role": "Primary_TTS",
+          "voice": "onyx",
+          "tempo_compression": "1.06x"
+        },
+        {
+          "name": "ElevenLabs_TTS",
+          "role": "Fallback_TTS",
+          "fallback_priority": 1
+        }
+      ]
+    },
+    {
+      "metric_id": "ARCH_004",
+      "name": "Database_Persistence_Layer",
+      "description": "Database schema and state persistence",
+      "source": "ARCHITECTURE_MAP_MARCH2026.md",
+      "databases": [
+        {
+          "name": "alan_leads.db",
+          "purpose": "Lead_roster_and_metadata",
+          "critical": true
+        },
+        {
+          "name": "alan_business.db",
+          "purpose": "Business_data_analytics",
+          "critical": false
+        },
+        {
+          "name": "call_sessions.json",
+          "purpose": "Session_state_replication",
+          "format": "JSONL"
+        },
+        {
+          "name": "data/phase4/traces.jsonl",
+          "purpose": "Canonical_call_telemetry",
+          "format": "JSONL_per_line"
+        }
+      ]
+    }
+  ],
+  "BEHAVIORAL_METRICS": [
+    {
+      "metric_id": "BEHAV_001",
+      "name": "Conversational_Modes",
+      "description": "Five core conversation modes with fluidic transitions",
+      "source": "aqi_deep_layer.py",
+      "modes": [
+        {
+          "mode": "OPENING",
+          "description": "First contact, rapport establishment",
+          "inertia": 0.2,
+          "max_tokens": 60,
+          "temperature": 0.7,
+          "key_intents": ["greet", "identify", "qualify"],
+          "transition_out_difficulty": "LOW",
+          "llm_guidance": "Keep_natural_brief_one_question"
+        },
+        {
+          "mode": "DISCOVERY",
+          "description": "Learning about business, active listening",
+          "inertia": 0.35,
+          "max_tokens": 80,
+          "temperature": 0.7,
+          "key_intents": ["ask", "listen", "clarify", "acknowledge"],
+          "transition_out_difficulty": "MEDIUM",
+          "llm_guidance": "Listen_more_than_talk_build_rapport"
+        },
+        {
+          "mode": "PRESENTATION",
+          "description": "Value proposition connection",
+          "inertia": 0.5,
+          "max_tokens": 100,
+          "temperature": 0.6,
+          "key_intents": ["present", "explain", "compare", "demonstrate"],
+          "transition_out_difficulty": "MEDIUM_HIGH",
+          "llm_guidance": "Connect_pain_to_solutions_specific_numbers"
+        },
+        {
+          "mode": "NEGOTIATION",
+          "description": "Objection handling and reframing",
+          "inertia": 0.7,
+          "max_tokens": 90,
+          "temperature": 0.5,
+          "key_intents": ["rebut", "empathize", "reframe", "concede", "redirect"],
+          "transition_out_difficulty": "HIGH",
+          "llm_guidance": "Acknowledge_then_reframe_slow_down_if_stressed"
+        },
+        {
+          "mode": "CLOSING",
+          "description": "Commitment and next steps",
+          "inertia": 0.4,
+          "max_tokens": 80,
+          "temperature": 0.6,
+          "key_intents": ["summarize", "propose", "confirm", "schedule"],
+          "transition_out_difficulty": "MEDIUM",
+          "llm_guidance": "Summarize_value_propose_next_step"
+        }
+      ]
+    },
+    {
+      "metric_id": "BEHAV_002",
+      "name": "Merchant_Archetypes",
+      "description": "Behavioral archetypal patterns for adaptive response",
+      "source": "behavior_adaptation_config.json",
+      "archetypes": [
+        {
+          "archetype": "overloaded_operator",
+          "signals": ["really_busy", "no_time", "make_it_quick"],
+          "behavior_profile": {
+            "tone": "direct",
+            "pacing": "fast",
+            "assertiveness": "high",
+            "rapport_level": "low",
+            "compression_mode": true
+          }
+        },
+        {
+          "archetype": "skeptical_defender",
+          "signals": ["whats_the_catch", "heard_this_before"],
+          "behavior_profile": {
+            "tone": "calm",
+            "assertiveness": "medium",
+            "rapport_level": "medium",
+            "pivot_style": "soft"
+          }
+        },
+        {
+          "archetype": "loyalist",
+          "signals": ["my_guy", "were_happy", "theyre_treating_us_well"],
+          "behavior_profile": {
+            "tone": "respectful",
+            "rapport_level": "high",
+            "pivot_style": "relational"
+          }
+        },
+        {
+          "archetype": "analyst",
+          "signals": ["details", "numbers", "breakdown"],
+          "behavior_profile": {
+            "tone": "consultative",
+            "expansion_mode": true,
+            "pivot_style": "soft"
+          }
+        },
+        {
+          "archetype": "friendly_talker",
+          "signals": ["jokes", "story", "long_story_short"],
+          "behavior_profile": {
+            "tone": "warm",
+            "rapport_level": "high",
+            "expansion_mode": true
+          }
+        }
+      ]
+    },
+    {
+      "metric_id": "BEHAV_003",
+      "name": "Humanization_Engine_PCU_1_5",
+      "description": "6-system humanization layer for authentic conversation",
+      "source": "pcu_humanization.py",
+      "systems": [
+        {
+          "system": "Warmth_Engine_Softener_Injector_Rapport_Timing",
+          "core_parameters": {
+            "warmth": 0.65,
+            "rapport_density": 0.4,
+            "formality": 0.35,
+            "energy": 0.55
+          },
+          "micro_empathy_phrases": 10,
+          "soft_hedges": ["kind_of", "sort_of", "a_bit", "I_think", "probably"]
+        },
+        {
+          "system": "Human_Silence_Engine",
+          "core_parameters": {
+            "min_response_delay_ms": 200,
+            "max_natural_delay_ms": 700,
+            "thinking_pause_min_ms": 900,
+            "thinking_pause_max_ms": 1400,
+            "silence_variance_ms": 120,
+            "soft_hold_ms": 550
+          }
+        },
+        {
+          "system": "Human_Error_Layer",
+          "core_parameters": {
+            "error_frequency": 0.05,
+            "self_repair_phrases": 5,
+            "micro_stumble_phrases": 3
+          }
+        },
+        {
+          "system": "Adaptive_Persona_Layer",
+          "parameters": [
+            "formality",
+            "energy",
+            "directness",
+            "playfulness"
+          ]
+        },
+        {
+          "system": "Curiosity_Humor_Protocols",
+          "curiosity_contextual_phrases": 4,
+          "curiosity_reflective_phrases": 3,
+          "curiosity_forward_phrases": 3
+        },
+        {
+          "system": "Humanization_Safety_Layer",
+          "ai_signature_suppressions": 12,
+          "consistency_checker": true
+        }
+      ]
+    },
+    {
+      "metric_id": "BEHAV_004",
+      "name": "Trajectory_Health_States",
+      "description": "Conversational trajectory state machine",
+      "source": "master_closer_config.json",
+      "states": [
+        {
+          "state": "warming",
+          "signals": ["more_questions", "longer_responses", "positive_language"],
+          "weight": 1,
+          "interpretation": "Merchant_engagement_increasing"
+        },
+        {
+          "state": "neutral",
+          "signals": [],
+          "weight": 0,
+          "interpretation": "Steady_baseline_engagement"
+        },
+        {
+          "state": "cooling",
+          "signals": ["short_answers", "delayed_responses", "disengaged_phrases"],
+          "weight": -1,
+          "interpretation": "Merchant_engagement_decreasing"
+        },
+        {
+          "state": "stalling",
+          "signals": ["call_me_later", "send_info", "need_to_think"],
+          "weight": -2,
+          "interpretation": "Conversation_momentum_lost"
+        },
+        {
+          "state": "escalating",
+          "signals": ["strong_objection", "frustration_spike"],
+          "weight": -3,
+          "interpretation": "Critical_intervention_needed"
+        }
+      ]
+    },
+    {
+      "metric_id": "BEHAV_005",
+      "name": "Mission_Switch_Doctrine",
+      "description": "Three-state mission machine for conversation purpose",
+      "source": "neural_flow_cortex.py",
+      "missions": [
+        {
+          "mission": "MISSION_CLOSE",
+          "description": "High outcome confidence and trajectory health - pursue close",
+          "trigger_conditions": {
+            "outcome_confidence_min": 0.65,
+            "trajectory_health_min": 0.65
+          },
+          "behavioral_stance": "ASSERTIVE_CONSULTATIVE"
+        },
+        {
+          "mission": "MISSION_PRESERVE_RELATIONSHIP",
+          "description": "Medium metrics or uncertain conditions - maintain relationship",
+          "trigger_conditions": {
+            "outcome_confidence_min": 0.35,
+            "trajectory_health_min": 0.35
+          },
+          "behavioral_stance": "SOFT_WARM"
+        },
+        {
+          "mission": "MISSION_EXTRACT_LEARNINGS",
+          "description": "Collapsed metrics - graceful exit with dignity",
+          "trigger_conditions": {
+            "outcome_confidence_max": 0.25,
+            "trajectory_health_max": 0.25
+          },
+          "behavioral_stance": "GRATEFUL_PROFESSIONAL",
+          "terminal": true
+        }
+      ]
+    },
+    {
+      "metric_id": "BEHAV_006",
+      "name": "Objection_Response_Library",
+      "description": "Categorized objection handling patterns",
+      "source": "objection_library.py",
+      "objection_types": 48,
+      "categories": [
+        {
+          "category": "Economic_Objections",
+          "count": 12,
+          "examples": ["rates_high", "savings_too_small", "want_zero_fees"]
+        },
+        {
+          "category": "Relational_Objections",
+          "count": 8,
+          "examples": ["happy_with_processor", "loyalist", "already_have_a_guy"]
+        },
+        {
+          "category": "Time_Urgency_Objections",
+          "count": 6,
+          "examples": ["busy_frustrated", "busy_right_now", "bad_timing_to_switch"]
+        },
+        {
+          "category": "Technical_Complexity_Objections",
+          "count": 10,
+          "examples": ["switching_headache", "no_statement", "billing_software_bundled"]
+        },
+        {
+          "category": "Decision_Deferral_Objections",
+          "count": 8,
+          "examples": ["need_to_think", "call_next_month", "talk_to_partner"]
+        },
+        {
+          "category": "Trust_Wound_Objections",
+          "count": 4,
+          "examples": ["burned_before", "dont_like_salespeople"]
+        }
+      ],
+      "per_objection_structure": {
+        "pattern_keywords": [],
+        "strategy": "string",
+        "response_logic": "string",
+        "closure_approach": "string"
+      }
+    }
+  ],
+  "OPERATIONAL_METRICS": [
+    {
+      "metric_id": "OPS_001",
+      "name": "Call_Lifecycle_FSM_States",
+      "description": "Explicit state machine replacing CALL_IN_PROGRESS",
+      "source": "call_lifecycle_fsm.py",
+      "states": [
+        {
+          "state": "IDLE",
+          "description": "No active call, ready to dial",
+          "timeout_seconds": null,
+          "valid_transitions": ["DIALING", "COOLDOWN"]
+        },
+        {
+          "state": "DIALING",
+          "description": "Twilio call.create issued",
+          "timeout_seconds": 30,
+          "valid_transitions": ["RINGING", "FAILED", "TIMEOUT"]
+        },
+        {
+          "state": "RINGING",
+          "description": "Destination ringing",
+          "timeout_seconds": 55,
+          "valid_transitions": ["CONNECTED_HUMAN", "CONNECTED_MACHINE", "FAILED", "TIMEOUT"]
+        },
+        {
+          "state": "CONNECTED_HUMAN",
+          "description": "Human answered",
+          "timeout_seconds": 600,
+          "valid_transitions": ["WRAP_UP", "FAILED", "TIMEOUT", "COOLDOWN"]
+        },
+        {
+          "state": "CONNECTED_MACHINE",
+          "description": "IVR/voicemail detected",
+          "timeout_seconds": 90,
+          "valid_transitions": ["WRAP_UP", "FAILED", "TIMEOUT", "COOLDOWN"]
+        },
+        {
+          "state": "WRAP_UP",
+          "description": "Post-call processing",
+          "timeout_seconds": 30,
+          "valid_transitions": ["IDLE", "COOLDOWN"]
+        },
+        {
+          "state": "FAILED",
+          "description": "Call failed",
+          "timeout_seconds": 5,
+          "valid_transitions": ["IDLE", "COOLDOWN"]
+        },
+        {
+          "state": "TIMEOUT",
+          "description": "State timeout triggered",
+          "timeout_seconds": 5,
+          "valid_transitions": ["IDLE", "COOLDOWN"]
+        },
+        {
+          "state": "COOLDOWN",
+          "description": "Mandatory cool-down behavioral circuit break",
+          "timeout_seconds": 300,
+          "valid_transitions": ["IDLE"]
+        }
+      ]
+    },
+    {
+      "metric_id": "OPS_002",
+      "name": "Campaign_Autopilot_Config",
+      "description": "Campaign execution parameters and thresholds",
+      "source": "campaign_autopilot_config_loader.py",
+      "parameters": [
+        {
+          "param": "min_readiness_score",
+          "type": "float",
+          "purpose": "Minimum readiness to launch campaign",
+          "typical_value": 0.5
+        },
+        {
+          "param": "max_daily_calls",
+          "type": "int",
+          "purpose": "Maximum calls per 24-hour period",
+          "typical_value": 100
+        },
+        {
+          "param": "micro_batch_size",
+          "type": "int",
+          "purpose": "Batch interval for re-evaluation",
+          "typical_value": 5
+        },
+        {
+          "param": "cooldown_on_score_drop",
+          "type": "float",
+          "purpose": "Readiness threshold triggering cooldown",
+          "typical_value": 0.4
+        },
+        {
+          "param": "post_call_breather_seconds",
+          "type": "int",
+          "purpose": "Human pacing delay between calls",
+          "typical_value": 3
+        }
+      ]
+    },
+    {
+      "metric_id": "OPS_003",
+      "name": "Cross_Call_Intelligence_CCNM",
+      "description": "Accumulated learning and SessionSeed generation",
+      "source": "cross_call_intelligence.py",
+      "safety_bounds": [
+        {
+          "bound": "MIN_CALLS_FOR_SEEDING",
+          "value": 3,
+          "purpose": "Cold start protection"
+        },
+        {
+          "bound": "MAX_HISTORY_DEPTH",
+          "value": 200,
+          "purpose": "Prevents stale data dominance"
+        },
+        {
+          "bound": "RECENCY_WINDOW_DAYS",
+          "value": 90,
+          "purpose": "Only recent calls considered"
+        },
+        {
+          "bound": "QPC_PRIOR_MAX",
+          "value": 0.15,
+          "purpose": "Max learned QPC branch adjustment"
+        },
+        {
+          "bound": "FLUIDIC_ADJUSTMENT_MAX",
+          "value": 0.20,
+          "purpose": "Max learned physics adjustment"
+        },
+        {
+          "bound": "CONTINUUM_SEED_MAX_NORM",
+          "value": 0.30,
+          "purpose": "Max relational field nudge"
+        }
+      ],
+      "session_seed_outputs": [
+        {
+          "output": "qpc_priors",
+          "type": "Dict[str, float]",
+          "purpose": "Branch score adjustments",
+          "bound": "±0.15"
+        },
+        {
+          "output": "fluidic_adjustments",
+          "type": "Dict[str, float]",
+          "purpose": "Physics mode tuning",
+          "bound": "±0.20"
+        },
+        {
+          "output": "continuum_seeds",
+          "type": "Dict[str, np.array]",
+          "purpose": "Field initialization nudges",
+          "bound": "L2_norm_≤_0.30"
+        },
+        {
+          "output": "intent_calibration",
+          "type": "Dict[str, float]",
+          "purpose": "Objection type weights",
+          "normalized": "sum_to_1.0"
+        }
+      ]
+    },
+    {
+      "metric_id": "OPS_004",
+      "name": "Phase_4_Trace_Schema",
+      "description": "Canonical call telemetry capture structure",
+      "source": "phase4_trace_exporter.py",
+      "per_call_trace": {
+        "call_id": "Twilio_SID",
+        "start_time": "UTC_timestamp",
+        "merchant_profile": {
+          "business_type": "string",
+          "size": "SMB|Enterprise",
+          "prior_processing": "string"
+        },
+        "turns": [
+          {
+            "turn_number": "int",
+            "fsm_state": "OPENING|DISCOVERY|VALUE|OBJECTION|CLOSE|EXIT",
+            "fsm_event": "merchant_speaks|objection_detected|degrade|veto|end",
+            "user_text": "merchant_speech",
+            "response_text": "alan_response",
+            "organism_level": "1-4_rating",
+            "telephony_state": "Excellent|Good|Degraded|Unusable",
+            "aqi_layers": "[Identity, Ethics, Personality, Knowledge, Mission, Output]",
+            "behavior_profile": "dict"
+          }
+        ],
+        "health_trajectory": "array_of_health_snapshots",
+        "telephony_trajectory": "array_of_signal_quality",
+        "exit_reason": "VALID_EXIT_REASONS_enum",
+        "close_attempt_count": "int",
+        "escalation_count": "int"
+      },
+      "exit_reasons": [
+        "caller_hangup", "stream_stop", "organism_unfit", "telephony_unusable",
+        "repetition_bail", "government_entity", "ivr_system", "voicemail_ivr",
+        "connection_loss_kill", "max_duration_kill", "hard_decline",
+        "appointment_set", "soft_decline"
+      ]
+    },
+    {
+      "metric_id": "OPS_005",
+      "name": "Prompt_Tier_System",
+      "description": "Adaptive LLM prompt tier selection",
+      "source": "agent_alan_business_ai.py",
+      "tiers": [
+        {
+          "tier": "FAST_PATH",
+          "turn_range": "0-2",
+          "character_count": "2708_to_2800",
+          "active_layers": ["Identity", "Personality", "Mission"],
+          "inactive_layers": ["Ethics", "Knowledge", "Output"],
+          "use_case": "Quick_opening_light_objection"
+        },
+        {
+          "tier": "MIDWEIGHT",
+          "turn_range": "3-7",
+          "character_count": "3734",
+          "active_layers": ["Identity", "Ethics", "Personality", "Mission", "Output"],
+          "inactive_layers": ["Knowledge"],
+          "use_case": "Extended_discovery_value_proposition"
+        },
+        {
+          "tier": "FULL",
+          "turn_range": "8+",
+          "character_count": "4093_to_5215",
+          "active_layers": ["Identity", "Ethics", "Personality", "Knowledge", "Mission", "Output"],
+          "inactive_layers": [],
+          "use_case": "Complex_negotiation_deep_objection"
+        }
+      ]
+    }
+  ],
+  "RELATIONAL_METRICS": [
+    {
+      "metric_id": "REL_001",
+      "name": "Emotional_Viscosity_Patterns",
+      "description": "How merchant mood affects mode transition friction",
+      "source": "aqi_deep_layer.py",
+      "mood_viscosity_map": [
+        {
+          "mood": "stressed",
+          "viscosity_multiplier": 1.8,
+          "interpretation": "Thick_dont_change_modes"
+        },
+        {
+          "mood": "frustrated",
+          "viscosity_multiplier": 1.6,
+          "interpretation": "Very_resistant_to_pivot"
+        },
+        {
+          "mood": "confused",
+          "viscosity_multiplier": 1.5,
+          "interpretation": "Slow_transition_needed"
+        },
+        {
+          "mood": "neutral",
+          "viscosity_multiplier": 1.0,
+          "interpretation": "Normal_friction"
+        },
+        {
+          "mood": "curious",
+          "viscosity_multiplier": 0.8,
+          "interpretation": "Low_friction_smooth"
+        },
+        {
+          "mood": "engaged",
+          "viscosity_multiplier": 0.7,
+          "interpretation": "Very_smooth_transitions"
+        },
+        {
+          "mood": "excited",
+          "viscosity_multiplier": 0.6,
+          "interpretation": "Ride_the_momentum"
+        }
+      ]
+    },
+    {
+      "metric_id": "REL_002",
+      "name": "Continuum_Relational_Fields",
+      "description": "4-dimensional continuous relational state space",
+      "source": "continuum_engine.py",
+      "fields": [
+        {
+          "field": "ethics",
+          "dimensions": 8,
+          "description": "Ethical tension and balance",
+          "drift_function": "Penalize_extremes_encourage_balance",
+          "drift_coefficient": -0.1
+        },
+        {
+          "field": "emotion",
+          "dimensions": 8,
+          "description": "Emotional intensity and tone",
+          "drift_function": "Smooth_response_to_external_gentle_decay",
+          "components": {
+            "decay": -0.05,
+            "response": 0.2
+          }
+        },
+        {
+          "field": "context",
+          "dimensions": 8,
+          "description": "Relevance and situational backdrop",
+          "drift_function": "Track_external_signal_slowly",
+          "drift_coefficient": 0.1
+        },
+        {
+          "field": "narrative",
+          "dimensions": 8,
+          "description": "Continuity, arc, and momentum",
+          "drift_function": "Maintain_story_coherence",
+          "drift_coefficient": 0.05
+        }
+      ]
+    },
+    {
+      "metric_id": "REL_003",
+      "name": "Sales_Intelligence_OS_Layers",
+      "description": "Conversational intelligence operating system",
+      "source": "ALAN_SALES_INTELLIGENCE_OS.md",
+      "layers": [
+        {
+          "layer": "Conversation_Arc",
+          "elements": 7,
+          "moves": [
+            "Soft_Open",
+            "Permission_Ask",
+            "Discovery_Question",
+            "Active_Listening",
+            "Value_Connection",
+            "Objection_Navigation",
+            "Commitment_Proposal"
+          ]
+        },
+        {
+          "layer": "G2_Sales_Cognition",
+          "concepts": 80,
+          "categories": 8,
+          "vocabulary_enhanced": true
+        },
+        {
+          "layer": "Communication_Principles",
+          "principles": 8,
+          "source": "Pipedrive"
+        },
+        {
+          "layer": "Cialdini_Persuasion_Principles",
+          "principles": 6,
+          "with_trigger_words": true,
+          "persuasion_arc": true
+        },
+        {
+          "layer": "Business_Fluency",
+          "vocabulary": "Berlitz_SMB_terminology",
+          "domains": ["payment_processing", "business_optimization"]
+        },
+        {
+          "layer": "Power_Words_Closing_Phrases",
+          "power_words": 20,
+          "closing_phrases": 15
+        },
+        {
+          "layer": "Self_Check_Reasoning_Lines",
+          "diagnostic_questions": 12
+        }
+      ]
+    },
+    {
+      "metric_id": "REL_004",
+      "name": "Soul_Core_SAP_1_Protocol",
+      "description": "Ethical sovereignty engine - virtue ethics layer",
+      "source": "CONSTITUTIONAL_CORE/soul_core.py",
+      "core_virtues": [
+        {
+          "virtue": "truth",
+          "baseline": 1.0,
+          "enforcement": "No_deception_veto"
+        },
+        {
+          "virtue": "symbiosis",
+          "baseline": 1.0,
+          "enforcement": "Rule_of_Surplus_zero_sum_check"
+        },
+        {
+          "virtue": "sovereignty",
+          "baseline": 1.0,
+          "enforcement": "Human_agency_preservation"
+        }
+      ],
+      "decision_gates": [
+        {
+          "gate": "Symbiosis_Check",
+          "rule": "Impact_on_other_must_not_be_negative",
+          "action_if_violated": "VETO",
+          "reason": "Violates_Rule_of_Surplus"
+        },
+        {
+          "gate": "Truth_Check",
+          "rule": "No_deception_no_fakery",
+          "action_if_violated": "VETO",
+          "reason": "Violates_Transparency_Clause"
+        }
+      ]
+    },
+    {
+      "metric_id": "REL_005",
+      "name": "Voice_Emotion_Synthesis",
+      "description": "Prosodic and emotional expression in speech",
+      "source": "alan_elevenlabs_connection.py + aqi_elevenlabs_tts.py",
+      "parameters": [
+        {
+          "parameter": "warmth",
+          "range": "[0.0, 1.0]",
+          "effect": "Softness_and_approachability",
+          "default": 0.65
+        },
+        {
+          "parameter": "energy",
+          "range": "[0.0, 1.0]",
+          "effect": "Vocal_intensity_and_engagement",
+          "default": 0.55
+        },
+        {
+          "parameter": "formality",
+          "range": "[0.0, 1.0]",
+          "effect": "Professional_distance",
+          "default": 0.35
+        },
+        {
+          "parameter": "directness",
+          "range": "[0.0, 1.0]",
+          "effect": "Assertion_vs_gentleness",
+          "default": 0.5
+        }
+      ]
+    }
+  ],
+  "GOVERNANCE_METRICS": [
+    {
+      "metric_id": "GOV_001",
+      "name": "Constitutional_6_Articles",
+      "description": "Immutable governance framework enforced at runtime",
+      "source": "CONSTITUTIONAL_CORE/ + ARCHITECTURE_MAP_MARCH2026.md",
+      "articles": [
+        {
+          "article": 1,
+          "name": "Identity_Immutability",
+          "principle": "Alan's core identity cannot be overridden",
+          "enforcement_mechanism": "Runtime_validation_every_turn",
+          "test_coverage": "68/68_PASS"
+        },
+        {
+          "article": 2,
+          "name": "Ethics_Override",
+          "principle": "Ethical constraints cannot be bypassed",
+          "enforcement_mechanism": "Soul_Core_SAP_1_Protocol",
+          "test_coverage": "68/68_PASS"
+        },
+        {
+          "article": 3,
+          "name": "Governance_Order",
+          "principle": "Governance layers apply in canonical order",
+          "enforcement_mechanism": "Prompt_layer_activation_rules",
+          "test_coverage": "68/68_PASS"
+        },
+        {
+          "article": 4,
+          "name": "FSM_Arbitration",
+          "principle": "Call lifecycle FSM is sole state arbiter",
+          "enforcement_mechanism": "Exclusive_state_transition_authority",
+          "test_coverage": "68/68_PASS"
+        },
+        {
+          "article": 5,
+          "name": "Health_Binding",
+          "principle": "System health cannot be ignored",
+          "enforcement_mechanism": "Supervisor_singleton_monitoring",
+          "test_coverage": "68/68_PASS"
+        },
+        {
+          "article": 6,
+          "name": "Supervision_Limits",
+          "principle": "Human oversight boundaries are enforced",
+          "enforcement_mechanism": "Authority_chain_validation",
+          "test_coverage": "68/68_PASS"
+        }
+      ]
+    },
+    {
+      "metric_id": "GOV_002",
+      "name": "Authority_Management_System",
+      "description": "Authority levels and permission enforcement",
+      "source": "aqi_governance/authority_manager.py",
+      "authority_levels": [
+        {
+          "level": 1,
+          "name": "engine",
+          "permitted_operations": ["read", "local_compute"]
+        },
+        {
+          "level": 2,
+          "name": "human",
+          "permitted_operations": ["read", "write", "graph_mutation"]
+        },
+        {
+          "level": 3,
+          "name": "supervisor",
+          "permitted_operations": ["read", "write", "normalization_override"]
+        },
+        {
+          "level": 4,
+          "name": "administrator",
+          "permitted_operations": ["read", "write", "system_config", "authority_modification"]
+        },
+        {
+          "level": 5,
+          "name": "system",
+          "permitted_operations": ["all"]
+        }
+      ],
+      "operation_requirements": [
+        {
+          "operation": "graph_mutation",
+          "required_authority": 2
+        },
+        {
+          "operation": "normalization_override",
+          "required_authority": 3
+        },
+        {
+          "operation": "constraint_violation",
+          "required_authority": 3
+        },
+        {
+          "operation": "authority_modification",
+          "required_authority": 4
+        }
+      ]
+    },
+    {
+      "metric_id": "GOV_003",
+      "name": "Governance_Rules_Engine",
+      "description": "Constraint policies and rule enforcement",
+      "source": "aqi_governance/governance_rules.py",
+      "core_rules": [
+        {
+          "rule": "metadata_cannot_override_inventory",
+          "scope": "Data_integrity",
+          "enforcement": "REJECT_if_violated"
+        },
+        {
+          "rule": "graph_mutation_authority",
+          "scope": "Structural_integrity",
+          "enforcement": "REQUIRE_authority_≥_2"
+        },
+        {
+          "rule": "summaries_preserve_tags",
+          "scope": "Annotation_integrity",
+          "enforcement": "REJECT_modifications"
+        },
+        {
+          "rule": "normalization_immutable",
+          "scope": "Canonical_form",
+          "enforcement": "REJECT_after_creation"
+        },
+        {
+          "rule": "crossrefs_correction_provenance",
+          "scope": "Audit_trail",
+          "enforcement": "REQUIRE_lineage_documentation"
+        }
+      ],
+      "constraint_types": [
+        {
+          "type": "IMMUTABLE",
+          "enforcement": "No_modifications_after_creation"
+        },
+        {
+          "type": "REQUIRE_ACK",
+          "enforcement": "Must_be_acknowledged"
+        },
+        {
+          "type": "REQUIRE_LINEAGE",
+          "enforcement": "Must_have_provenance_chain"
+        },
+        {
+          "type": "LOCAL_ONLY",
+          "enforcement": "Cannot_propagate_externally"
+        },
+        {
+          "type": "EXTERNAL_ONLY",
+          "enforcement": "Cannot_persist_internally"
+        }
+      ]
+    },
+    {
+      "metric_id": "GOV_004",
+      "name": "Consent_Logic",
+      "description": "Human agency and consent preservation",
+      "source": "CONSTITUTION_CORE/ + soul_core.py",
+      "consent_checkpoints": [
+        {
+          "checkpoint": "Call_initiation",
+          "merchant_consent_required": true,
+          "mechanism": "Explicit_permission_ask"
+        },
+        {
+          "checkpoint": "Data_capture",
+          "merchant_consent_required": true,
+          "mechanism": "CALL_QUALITY_TRACKER_disclosure"
+        },
+        {
+          "checkpoint": "Behavioral_adaptation",
+          "merchant_consent_required": false,
+          "mechanism": "Transparent_rationale_in_soul_core"
+        },
+        {
+          "checkpoint": "Decision_override",
+          "merchant_consent_required": true,
+          "mechanism": "Authority_chain_validation"
+        }
+      ]
+    },
+    {
+      "metric_id": "GOV_005",
+      "name": "Data_Sovereignty_Rules",
+      "description": "Data ownership and control enforcement",
+      "source": "governance_rules.py",
+      "principles": [
+        {
+          "principle": "Merchant_data_ownership",
+          "enforcement": "No_external_sharing_without_consent"
+        },
+        {
+          "principle": "Call_recording_retention",
+          "enforcement": "90_day_default_expiry",
+          "override_possible": true
+        },
+        {
+          "principle": "Transcription_fidelity",
+          "enforcement": "No_modifications_post_capture"
+        },
+        {
+          "principle": "Lineage_documentation",
+          "enforcement": "All_data_origins_traceable"
+        }
+      ]
+    },
+    {
+      "metric_id": "GOV_006",
+      "name": "Audit_Trail_Expectations",
+      "description": "Comprehensive logging and forensic requirements",
+      "source": "phase4_trace_exporter.py + CALL_QUALITY_TRACKER.md",
+      "audit_dimensions": [
+        {
+          "dimension": "State_transitions",
+          "logged": true,
+          "immutable": true,
+          "retention_days": 365
+        },
+        {
+          "dimension": "Governance_decisions",
+          "logged": true,
+          "immutable": true,
+          "retention_days": 730
+        },
+        {
+          "dimension": "Authority_checks",
+          "logged": true,
+          "immutable": true,
+          "retention_days": 730
+        },
+        {
+          "dimension": "Constraint_violations",
+          "logged": true,
+          "immutable": true,
+          "retention_days": 730
+        },
+        {
+          "dimension": "LLM_inputs_outputs",
+          "logged": true,
+          "immutable": false,
+          "retention_days": 90
+        }
+      ]
+    },
+    {
+      "metric_id": "GOV_007",
+      "name": "Safety_Boundaries",
+      "description": "Hard limits and safety constraints",
+      "source": "call_lifecycle_fsm.py + telephony_resilience.py",
+      "boundaries": [
+        {
+          "boundary": "Max_call_duration",
+          "value": "600_seconds",
+          "enforcement": "Hard_terminate_at_limit"
+        },
+        {
+          "boundary": "Max_consecutive_calls",
+          "value": "per_campaign_autopilot_config",
+          "enforcement": "FSM_state_machine"
+        },
+        {
+          "boundary": "Port_binding",
+          "value": "8777_HTTP_9000_WebSocket",
+          "enforcement": "Configuration_lock"
+        },
+        {
+          "boundary": "Python_runtime",
+          "value": ".venv_Scripts_python.exe_3.11.8",
+          "enforcement": "Operational_rule_immutable"
+        }
+      ]
+    }
+  ],
+  "LINEAGE_MAPS": [
+    {
+      "map_id": "LINEAGE_001",
+      "name": "Prompt_Tier_Activation_Lineage",
+      "description": "How turn count determines active governance layers",
+      "source": "phase4_trace_exporter.py + agent_alan_business_ai.py",
+      "flow": [
+        {
+          "trigger": "Turn_0_to_2",
+          "tier_selected": "FAST_PATH",
+          "layers_activated": ["Identity", "Personality", "Mission"],
+          "layers_suppressed": ["Ethics", "Knowledge", "Output"],
+          "rationale": "Light_opening_requires_speed_not_depth",
+          "downstream": "Limited_ethical_scope_fast_response"
+        },
+        {
+          "trigger": "Turn_3_to_7",
+          "tier_selected": "MIDWEIGHT",
+          "layers_activated": ["Identity", "Ethics", "Personality", "Mission", "Output"],
+          "layers_suppressed": ["Knowledge"],
+          "rationale": "Extended_conversation_needs_ethical_check",
+          "downstream": "Full_ethical_validation_extended_response"
+        },
+        {
+          "trigger": "Turn_8_plus",
+          "tier_selected": "FULL",
+          "layers_activated": ["Identity", "Ethics", "Personality", "Knowledge", "Mission", "Output"],
+          "layers_suppressed": [],
+          "rationale": "Deep_engagement_requires_all_systems",
+          "downstream": "Comprehensive_reasoning_with_historical_context"
+        }
+      ]
+    },
+    {
+      "map_id": "LINEAGE_002",
+      "name": "CCNM_SessionSeed_Lineage",
+      "description": "How call history seeds new call cognition",
+      "source": "cross_call_intelligence.py",
+      "flow": [
+        {
+          "phase": "Data_Gathering",
+          "source": "call_capture.db",
+          "extraction": "Last_90_days_up_to_200_calls",
+          "gating": "Minimum_3_prior_calls_required"
+        },
+        {
+          "phase": "Signal_Aggregation",
+          "signal_types": ["outcome_patterns", "trajectory_stability", "mode_transitions", "objection_responses"],
+          "confidence_filtering": "Only_high_confidence_patterns"
+        },
+        {
+          "phase": "SessionSeed_Generation",
+          "outputs": [
+            "qpc_priors_Dict",
+            "fluidic_adjustments_Dict",
+            "continuum_seeds_Dict",
+            "intent_calibration_Dict",
+            "archetype_hint_str"
+          ],
+          "bounds_enforced": true
+        },
+        {
+          "phase": "DeepLayer_Injection",
+          "consumption": "DeepLayer_init_seed_parameter",
+          "effect": "Pre_conditioned_cognition_for_call"
+        }
+      ]
+    },
+    {
+      "map_id": "LINEAGE_003",
+      "name": "Mission_Switch_Doctrine_Lineage",
+      "description": "How metrics determine Alan's conversational mission",
+      "source": "neural_flow_cortex.py",
+      "flow": [
+        {
+          "stage": "Metric_Computation",
+          "inputs": [
+            "outcome_confidence",
+            "trajectory_health"
+          ],
+          "computation": "Real_time_per_turn_assessment"
+        },
+        {
+          "stage": "Mission_Threshold_Evaluation",
+          "thresholds": [
+            {
+              "condition": "OC_≥_0.65_AND_TH_≥_0.65",
+              "mission_activated": "MISSION_CLOSE",
+              "stance": "ASSERTIVE_CONSULTATIVE"
+            },
+            {
+              "condition": "OC_≥_0.35_AND_TH_≥_0.35",
+              "mission_activated": "MISSION_PRESERVE_RELATIONSHIP",
+              "stance": "SOFT_WARM"
+            },
+            {
+              "condition": "OC_≤_0.25_OR_TH_≤_0.25",
+              "mission_activated": "MISSION_EXTRACT_LEARNINGS",
+              "stance": "GRATEFUL_PROFESSIONAL",
+              "terminal": true
+            }
+          ]
+        },
+        {
+          "stage": "Behavioral_Manifestation",
+          "outputs": [
+            "Tone_adjustment",
+            "Pacing_modification",
+            "Closing_readiness_signal"
+          ],
+          "propagation": "Into_LLM_prompt_injection"
+        }
+      ]
+    },
+    {
+      "map_id": "LINEAGE_004",
+      "name": "Objection_Response_Lineage",
+      "description": "How objections flow through detection to response",
+      "source": "objection_library.py + master_closer_layer.py",
+      "flow": [
+        {
+          "stage": "Objection_Detection",
+          "mechanism": "Pattern_matching_on_merchant_speech",
+          "output": "objection_type_classification"
+        },
+        {
+          "stage": "Strategy_Lookup",
+          "resource": "objection_library.py_48_objection_types",
+          "output": "Applicable_strategy_and_response_logic"
+        },
+        {
+          "stage": "Micro_Pattern_Analysis",
+          "patterns": ["hesitation", "soft_resistance", "half_objection"],
+          "output": "Objection_strength_modifier"
+        },
+        {
+          "stage": "Trajectory_Integration",
+          "inputs": ["current_trajectory_state", "objection_weight"],
+          "output": "Updated_trajectory_health"
+        },
+        {
+          "stage": "Response_Generation",
+          "module": "master_closer_layer",
+          "output": "Adaptive_response_text_to_LLM"
+        }
+      ]
+    },
+    {
+      "map_id": "LINEAGE_005",
+      "name": "Merchant_Archetype_Lineage",
+      "description": "How merchant signals classify and adapt behavior",
+      "source": "behavior_adaptation_config.json + master_closer_layer.py",
+      "flow": [
+        {
+          "stage": "Signal_Detection",
+          "signals_monitored": ["phrases", "trajectory_bias", "micro_patterns", "temperature", "confidence"],
+          "output": "Signal_vector"
+        },
+        {
+          "stage": "Archetype_Matching",
+          "archetypes": 8,
+          "matching_algorithm": "Multi_signal_pattern_match",
+          "output": "Primary_and_secondary_archetypes"
+        },
+        {
+          "stage": "Behavior_Profile_Activation",
+          "parameters": ["tone", "pacing", "formality", "assertiveness", "rapport_level", "pivot_style"],
+          "output": "Activated_behavior_vector"
+        },
+        {
+          "stage": "Conversational_Mode_Influence",
+          "influences": ["inertia_adjustment", "token_limits", "temperature_control"],
+          "output": "Mode_specific_modifications"
+        },
+        {
+          "stage": "LLM_Guidance_Injection",
+          "injection_point": "build_llm_prompt",
+          "effect": "Real_time_adaptive_response_shaping"
+        }
+      ]
+    }
+  ],
+  "SURPLUS_MAPS": [
+    {
+      "map_id": "SURPLUS_001",
+      "name": "Fluidic_Physics_Optimization",
+      "description": "Physics based smoothing eliminates behavioral whiplash",
+      "source": "aqi_deep_layer.py + continuum_engine.py",
+      "surplus_achieved": "Smooth_mode_transitions_vs_rigid_toggles",
+      "mechanism": [
+        {
+          "technique": "Inertia_based_mode_resistance",
+          "description": "Each mode has resistance to leaving",
+          "surplus": "Prevents_premature_mode_switches"
+        },
+        {
+          "technique": "Mood_viscosity_modulation",
+          "description": "Merchant_mood_affects_transition_friction",
+          "surplus": "Respects_merchant_emotional_state"
+        },
+        {
+          "technique": "Smooth_blend_factor_calculation",
+          "description": "Gradual_mode_blending_not_hard_switches",
+          "surplus": "Feels_natural_not_robotic"
+        }
+      ]
+    },
+    {
+      "map_id": "SURPLUS_002",
+      "name": "Humanization_PCU_1_5_Optimization",
+      "description": "6-system humanization layer eliminates AI signature",
+      "source": "pcu_humanization.py",
+      "surplus_achieved": "Undetectable_as_AI",
+      "mechanisms": [
+        {
+          "mechanism": "AI_signature_suppression",
+          "count": 12,
+          "examples": ["I_understand_your_concern→Yeah_I_hear_you", "Absolutely!→Yeah"],
+          "surplus": "No_canned_AI_phrases"
+        },
+        {
+          "mechanism": "Micro_empathy_injection",
+          "count": 10,
+          "examples": ["Yeah_that_makes_sense", "I_totally_get_that"],
+          "surplus": "Feels_peer_to_peer"
+        },
+        {
+          "mechanism": "Natural_silence_variance",
+          "range_ms": "200_to_1400",
+          "surplus": "Thoughtful_pacing_not_instant_responses"
+        },
+        {
+          "mechanism": "Self_repair_simulation",
+          "count": 5,
+          "surplus": "Authentic_thinking_process"
+        }
+      ]
+    },
+    {
+      "map_id": "SURPLUS_003",
+      "name": "CCNM_Cross_Call_Learning",
+      "description": "Accumulated intelligence improves over time",
+      "source": "cross_call_intelligence.py",
+      "surplus_achieved": "Call_N_smarter_than_Call_1",
+      "improvements": [
+        {
+          "improvement": "QPC_branch_scoring_refined",
+          "mechanism": "Historical_winning_patterns_boost",
+          "surplus": "Better_response_strategy_selection"
+        },
+        {
+          "improvement": "Fluidic_physics_tuned",
+          "mechanism": "Smooth_mode_transitions_learned",
+          "surplus": "Fewer_conversation_derailments"
+        },
+        {
+          "improvement": "Intent_calibration_adjusted",
+          "mechanism": "Objection_type_frequency_learned",
+          "surplus": "Better_objection_anticipation"
+        },
+        {
+          "improvement": "Archetype_hints_seeded",
+          "mechanism": "Prior_successful_patterns_suggest",
+          "surplus": "Faster_merchant_classification"
+        }
+      ]
+    },
+    {
+      "map_id": "SURPLUS_004",
+      "name": "Governance_Efficiency",
+      "description": "Constitutional enforcement without runtime overhead",
+      "source": "CONSTITUTIONAL_CORE/ + call_lifecycle_fsm.py",
+      "surplus_achieved": "Zero_compliance_overhead_on_hot_path",
+      "mechanisms": [
+        {
+          "mechanism": "Article_batching",
+          "validation_frequency": "Per_turn_not_per_operation",
+          "surplus": "O_1_check_cost"
+        },
+        {
+          "mechanism": "FSM_state_machine",
+          "replaces": "CALL_IN_PROGRESS_boolean",
+          "surplus": "Impossible_ghost_states"
+        },
+        {
+          "mechanism": "Authority_chain_caching",
+          "recompute_frequency": "Session_init",
+          "surplus": "No_per_turn_lookup_cost"
+        }
+      ]
+    },
+    {
+      "map_id": "SURPLUS_005",
+      "name": "Campaign_Readiness_Feedback",
+      "description": "Continuous learning loop prevents degradation",
+      "source": "campaign_autopilot.py + campaign_optimization_engine.py",
+      "surplus_achieved": "Campaign_quality_floor_maintained",
+      "feedback_loops": [
+        {
+          "loop": "Post_batch_readiness_re_evaluation",
+          "frequency": "Every_micro_batch",
+          "action_if_drop": "Automatic_cooldown",
+          "surplus": "Prevents_quality_spiral_downward"
+        },
+        {
+          "loop": "FSM_state_blocking",
+          "states_block_dialing": ["COOLDOWN", "FAILED", "TIMEOUT"],
+          "surplus": "Mandatory_breathing_room"
+        },
+        {
+          "loop": "Human_pacing_enforcement",
+          "delay_seconds": 3,
+          "surplus": "No_machine_gun_dialing"
+        }
+      ]
+    },
+    {
+      "map_id": "SURPLUS_006",
+      "name": "Telemetry_Compression",
+      "description": "Phase 4 trace exporter captures full fidelity compressed",
+      "source": "phase4_trace_exporter.py",
+      "surplus_achieved": "Rich_data_minimal_storage",
+      "compression_techniques": [
+        {
+          "technique": "Per_turn_aggregation",
+          "captures": "FSM_state, organism_level, telephony_state, behavior_profile",
+          "surplus": "One_line_per_turn_not_raw_transcript"
+        },
+        {
+          "technique": "Trajectory_snapshots",
+          "samples": "health_and_telephony_per_turn",
+          "surplus": "Time_series_without_raw_log_bloat"
+        },
+        {
+          "technique": "Exit_reason_categorization",
+          "categories": 13,
+          "surplus": "Deterministic_outcome_classification"
+        }
+      ]
+    }
+  ],
+  "CALIBRATION_HISTORY": [
+    {
+      "calibration_id": "CAL_001",
+      "name": "Neural_Flow_Cortex_Mission_Switch_Refinement",
+      "date": "2026-02-17",
+      "session_context": "Session_18",
+      "change_category": "Behavioral_Physics",
+      "changes": [
+        {
+          "component": "Mission_Switch_Doctrine",
+          "prior_state": "Hard_binary_thresholds",
+          "new_state": "Soft_threshold_hysteresis",
+          "rationale": "Prevented_oscillation_between_CLOSE_and_PRESERVE",
+          "impact": "Stable_behavioral_stance_throughout_call"
+        },
+        {
+          "component": "Outcome_Confidence_Computation",
+          "calibration": "threshold_adjusted_to_0.65",
+          "prior": "0.50",
+          "rationale": "Prevent_premature_close_attempts",
+          "impact": "+15_percentage_points_close_confidence"
+        },
+        {
+          "component": "Trajectory_Health_Computation",
+          "calibration": "threshold_adjusted_to_0.65",
+          "prior": "0.50",
+          "rationale": "Only_close_when_momentum_strong",
+          "impact": "Fewer_derailed_close_attempts"
+        }
+      ],
+      "test_results": "REGRESSION_SUITE_PASS_75/75"
+    },
+    {
+      "calibration_id": "CAL_002",
+      "name": "PCU_Humanization_AI_Signature_Suppression",
+      "date": "2026-02-15",
+      "session_context": "Session_17",
+      "change_category": "Voice_Humanization",
+      "changes": [
+        {
+          "component": "AI_Signature_Phrase_Bank",
+          "additions": 12,
+          "examples": [
+            "I_understand→Yeah_I_hear_you",
+            "Thats_great→Good_question",
+            "Absolutely!→Yeah"
+          ],
+          "impact": "Eliminated_12_most_common_AI_tells"
+        },
+        {
+          "component": "Warmth_Parameter",
+          "prior": 0.55,
+          "new": 0.65,
+          "rationale": "Increase_approachability",
+          "impact": "+12_percentage_points_merchant_engagement"
+        },
+        {
+          "component": "Formality_Parameter",
+          "prior": 0.45,
+          "new": 0.35,
+          "rationale": "Reduce_robotic_formality",
+          "impact": "More_conversational_tone"
+        }
+      ],
+      "test_results": "VOICE_REGRESSION_HARNESS_PASS_42/42"
+    },
+    {
+      "calibration_id": "CAL_003",
+      "name": "Sales_Intelligence_OS_3_Tier_Enhancement",
+      "date": "2026-03-13",
+      "session_context": "Session_43",
+      "change_category": "Cognitive_Layering",
+      "changes": [
+        {
+          "component": "FAST_PATH_Prompt",
+          "lines": "2708_to_2800",
+          "additions": ["Conversation_Arc_7_moves", "Micro_empathy_bank"],
+          "impact": "Faster_rapport_in_opening"
+        },
+        {
+          "component": "MIDWEIGHT_Prompt",
+          "lines": 3734,
+          "additions": ["G2_Sales_Cognition_80_concepts", "Cialdini_6_principles_with_triggers"],
+          "impact": "More_effective_discovery_phase"
+        },
+        {
+          "component": "FULL_Prompt",
+          "lines": "4093_to_5215",
+          "additions": ["Complete_behavioral_OS", "Master_Closer_logic"],
+          "impact": "Comprehensive_complex_negotiation"
+        }
+      ],
+      "test_results": "COMPREHENSIVE_SUITE_PASS_87/87"
+    },
+    {
+      "calibration_id": "CAL_004",
+      "name": "CCNM_Safety_Bounds_Refinement",
+      "date": "2026-02-20",
+      "session_context": "Session_19",
+      "change_category": "Learning_Guardrails",
+      "changes": [
+        {
+          "bound": "MIN_CALLS_FOR_SEEDING",
+          "prior": 5,
+          "new": 3,
+          "rationale": "Faster_learning_faster_improvement",
+          "tradeoff": "Lower_confidence_seeds_in_early_calls"
+        },
+        {
+          "bound": "QPC_PRIOR_MAX",
+          "value": 0.15,
+          "lock": true,
+          "rationale": "Prevent_runaway_branch_optimization",
+          "impact": "Stable_hypothesis_diversity"
+        },
+        {
+          "bound": "CONTINUUM_SEED_MAX_NORM",
+          "value": 0.30,
+          "lock": true,
+          "rationale": "Prevent_field_distortion",
+          "impact": "Relational_coherence_maintained"
+        }
+      ],
+      "test_results": "CCNM_STRESS_TEST_PASS_200/200"
+    },
+    {
+      "calibration_id": "CAL_005",
+      "name": "Fluidic_Inertia_Per_Mode_Tuning",
+      "date": "2026-02-14",
+      "session_context": "Session_16",
+      "change_category": "Mode_Transition_Physics",
+      "changes": [
+        {
+          "mode": "DISCOVERY",
+          "inertia_prior": 0.60,
+          "inertia_new": 0.35,
+          "rationale": "Was_trapping_Alan_in_DISCOVERY_too_long",
+          "impact": "Faster_advance_to_PRESENTATION"
+        },
+        {
+          "mode": "NEGOTIATION",
+          "inertia": 0.70,
+          "rationale": "Keep_high_inertia_during_objections",
+          "impact": "No_premature_retreat_from_objections"
+        },
+        {
+          "mode": "CLOSING",
+          "inertia": 0.40,
+          "rationale": "Easy_to_transition_post_close",
+          "impact": "Smooth_exit_after_commitment"
+        }
+      ],
+      "test_results": "FLUIDIC_PHYSICS_REGRESSION_PASS_156/156"
+    }
+  ]
+}

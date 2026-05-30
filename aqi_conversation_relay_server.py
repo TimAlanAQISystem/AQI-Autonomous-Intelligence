@@ -15,6 +15,7 @@ if sys.platform == "win32":
 
 import asyncio
 import json
+import hashlib
 import io  # [2026-03-09 PRE-CALL HARDENING] WAV construction for STT pre-warm
 import traceback
 import websockets
@@ -26,13 +27,15 @@ import base64
 import os
 import audioop # [FIX] Required for VAD Logic
 import math    # [RING TONE] Sine wave generation for phone ring
+from dataclasses import dataclass, field
+from typing import Any, Dict, List, Optional, Set
 import random
 import re  # [VERSION O] Sentence boundary detection for per-sentence TTS
 import queue as thread_queue  # [VERSION R+] Thread-safe queue for orchestrated LLM→TTS pipeline
 import urllib.request  # [VERSION R+] Direct SSE streaming for orchestrated pipeline
 
 import requests
-from openai import OpenAI as OpenAIClient  # OpenAI TTS (voice=echo, model=tts-1)
+from openai import OpenAI as OpenAIClient  # OpenAI TTS (voice=onyx, model=gpt-4o-mini-tts)
 from concurrent.futures import ThreadPoolExecutor
 import aqi_stt_engine # [FIX] Import STT Engine for Twilio Media Streams
 from supervisor import AlanSupervisor
@@ -102,9 +105,24 @@ from multi_turn_strategic_planning import MultiTurnStrategicPlanner
 from bias_auditing_system import BiasAuditingSystem
 from human_override_api import HumanOverrideAPI
 from personality_engine import PersonalityEngine
+from pcu_humanization import get_pcu_engine, PCUHumanization
+
+# [SAP-1 ETHICS] Ethical Sovereignty Engine — constitutional virtue filter
+# Implements Tenet 2 (Rule of Surplus) and Tenet 4 (Transparency Clause).
+# Evaluates every sentence before TTS: blocks zero-sum or deceptive output.
+try:
+    from CONSTITUTIONAL_CORE.soul_core import SoulCore
+    SAP1_WIRED = True
+    logging.info("[ORGAN] SAP-1 Ethical Sovereignty Engine WIRED")
+except ImportError as e:
+    SAP1_WIRED = False
+    logging.warning(f"[ORGAN] SAP-1 Soul Core unavailable: {e}")
 
 # [PERSONALITY ENGINE] Master toggle — set False to disable PE without removing code
 PERSONALITY_ENGINE_ENABLED = True
+
+# [PCU-1.5 HUMANIZATION] Master toggle — set False to disable without removing code
+PCU_HUMANIZATION_ENABLED = True
 
 # [REPLICATION] Alan fleet replication engine — concurrent call tracking & Hive Mind
 try:
@@ -1226,7 +1244,15 @@ def detect_prosody_intent(context: dict, analysis: dict = None) -> str:
         return 'objection_handling'
     
     # 4. Near close → momentum
-    if endgame in ('ready', 'closing') or trajectory == 'warming':
+    # [2026-03-11 FIX] trajectory=='warming' must NOT trigger closing_momentum.
+    # 'warming' is the EARLY stage — rapport is building, not closing. Previously,
+    # every instructor call and most business calls defaulted to closing_momentum
+    # because Master Closer initializes trajectory to 'warming'. This caused:
+    #   - TTS speed 0.94 (6% slower than natural)
+    #   - PE speed_mod stacking it further to 0.86 (14% slower)
+    #   - Voice instruction "speak with measured authority — SLOWER than normal"
+    # Only 'ready' and 'closing' endgame states warrant closing_momentum.
+    if endgame in ('ready', 'closing'):
         if sentiment != 'negative':
             return 'closing_momentum'
     
@@ -1271,7 +1297,11 @@ def refine_prosody_per_sentence(sentence: str, base_intent: str, is_last_sentenc
     """
     # Strong emotional intents are NOT overridden by content analysis
     # These respond to the CALLER's emotional state and must hold
-    LOCKED_INTENTS = {'empathetic_reflect', 'objection_handling', 'closing_momentum'}
+    # [2026-03-11 FIX] Removed closing_momentum from LOCKED_INTENTS.
+    # closing_momentum was preventing per-sentence refinement (questions→curious_probe,
+    # corrections→repair_clarify) which made Alan sound monotonously measured.
+    # Empathetic and objection intents remain locked (emotional state must hold).
+    LOCKED_INTENTS = {'empathetic_reflect', 'objection_handling'}
     if base_intent in LOCKED_INTENTS:
         return base_intent
     
@@ -1927,7 +1957,7 @@ logger.addHandler(_call_fh)
 # [HUMAN PACING] Inter-sentence silence duration
 # 150ms = 1200 samples at 8kHz = 7.5 frames of 160 bytes
 # This matches natural human breathing pauses between sentences on the phone
-SENTENCE_SILENCE_FRAMES = 6  # ~120ms of comfort noise between sentences — natural breathing rhythm
+SENTENCE_SILENCE_FRAMES = 6  # ~120ms of comfort noise between sentences — [2026-03-13 CALL-6] REVERTED 5→6: Call 6 regression, Alan machine-gunned Tim
 
 # [VERSION P] COMMA MICRO-PAUSE — shorter pause at clause boundaries
 # Real humans pause ~60-80ms at commas vs ~150-200ms at periods.
@@ -2382,6 +2412,121 @@ def generate_true_silence_frame():
         logging.info(f"[SILENCE] Generated true silence frame ({FRAME_SIZE} bytes, µ-law 0xFF)")
     return _TRUE_SILENCE_FRAME
 
+
+# ======================================================================
+# [PCU-1.0 HIE] Human Imperfection Engine — Post-LLM Text Transform
+# ======================================================================
+# Adds subtle human-like disfluencies and softeners to LLM output.
+# This makes Alan sound less "AI polished" and more like a real person
+# on a phone call. Applied per-sentence before TTS.
+#
+# Rules:
+#   - Only modifies sentences that start with certain patterns
+#   - 30% chance to add a softener (not every sentence)
+#   - Never double-softens (checks for existing softeners)
+#   - Never modifies questions (?)
+#   - Never modifies very short responses (<=3 words)
+#   - Softeners are subtle: "So, ", "Yeah, ", "I mean, ", "Look, "
+# ======================================================================
+
+import random as _hie_random
+
+# Sentence-initial softeners — these are things real people say
+_HIE_SOFTENERS = [
+    "So, ",
+    "Yeah, ",
+    "Look, ",
+    "I mean, ",
+    "Yeah so, ",
+    "Hey, ",
+    "Well, ",
+]
+
+# Words that already indicate a natural opening — don't double up
+_HIE_EXISTING_OPENERS = {
+    'so', 'yeah', 'look', 'well', 'hey', 'ah', 'oh', 'hmm',
+    'actually', 'honestly', 'listen', 'okay', 'sure', 'right',
+    'no', 'nah', 'ha', 'huh', 'i mean', 'you know',
+}
+
+_hie_used_softeners_this_turn = []  # Per-turn tracking to prevent repetition
+
+def hie_reset_turn():
+    """Reset per-turn softener tracking. Call once before processing each LLM response."""
+    global _hie_used_softeners_this_turn
+    _hie_used_softeners_this_turn = []
+
+def hie_transform_sentence(sentence: str, turn_count: int = 0, sentence_idx: int = 0, all_sentences: list = None, bridge_text: str = None) -> str:
+    """[PCU-1.0 HIE] Apply human imperfection to a sentence.
+    
+    Args:
+        sentence: The LLM-generated sentence text.
+        turn_count: Current turn number (0-based).
+        sentence_idx: Sentence index within this turn's response.
+        all_sentences: Full list of sentences in this turn (for cross-sentence dedup).
+        bridge_text: Bridge utterance sent this turn (e.g. 'Yeah...'). Softeners
+                     matching this word are excluded to prevent doubling.
+    
+    Returns:
+        Modified sentence with optional softener prefix.
+    """
+    global _hie_used_softeners_this_turn
+    
+    if not sentence or len(sentence.split()) <= 3:
+        return sentence
+    
+    # Never modify questions
+    if sentence.rstrip().endswith('?'):
+        return sentence
+    
+    # Don't soften the very first sentence of the very first turn — that's T01/greeting
+    if turn_count <= 1 and sentence_idx == 0:
+        return sentence
+    
+    # Check if sentence already starts with a natural opener
+    _lower = sentence.lower().strip()
+    for opener in _HIE_EXISTING_OPENERS:
+        if _lower.startswith(opener):
+            return sentence
+    
+    # 30% chance to add a softener
+    if _hie_random.random() > 0.30:
+        return sentence
+    
+    # Build candidate pool excluding already-used softeners this turn
+    _available = [s for s in _HIE_SOFTENERS if s not in _hie_used_softeners_this_turn]
+    if not _available:
+        return sentence  # All softeners exhausted this turn
+    
+    # [2026-03-16 FIX] Bridge-aware exclusion: if a bridge like "Yeah..." was
+    # already played this turn, exclude softeners starting with the same word
+    # to prevent "Yeah... Yeah, that's actually pretty common" doubling.
+    if bridge_text:
+        _bridge_word = bridge_text.strip().rstrip('.').strip().lower()
+        _available = [s for s in _available if not s.strip().rstrip(',').lower().startswith(_bridge_word)]
+        if not _available:
+            return sentence
+    
+    # Cross-sentence dedup: exclude softeners whose keyword already appears
+    # in ANY other sentence of this turn's response (prevents "Look... Look..." pattern)
+    if all_sentences:
+        _other_text = ' '.join(s.lower() for i, s in enumerate(all_sentences) if i != sentence_idx)
+        _available = [s for s in _available if s.strip().rstrip(',').lower() not in _other_text]
+        if not _available:
+            return sentence
+    
+    softener = _hie_random.choice(_available)
+    _hie_used_softeners_this_turn.append(softener)
+    
+    # Lowercase the first character of the original sentence to flow naturally
+    if sentence[0].isupper() and not sentence.split()[0].isupper():
+        sentence = sentence[0].lower() + sentence[1:]
+    
+    result = softener + sentence
+    logging.debug(f"[HIE] Softened: '{result[:60]}'")
+    return result
+
+
 def split_into_sentences(text):
     """Split text into natural sentences for per-sentence TTS.
     
@@ -2522,10 +2667,130 @@ def _build_aqi_health_snapshot(context: dict) -> dict:
     }
 
 
+class BackchannelProfile:
+    def __init__(self,
+                 style: str = "neutral",
+                 phrases: list | None = None,
+                 min_interval: float = 1.2,
+                 max_frequency: float = 0.5):
+        self.style: str = style                  # "warm", "neutral", "concise"
+        self.min_interval: float = min_interval  # seconds between backchannels
+        self.max_frequency: float = max_frequency  # fraction of turns allowed
+        self.phrases: dict = {
+            "warm": [
+                "Yeah, totally.", "I get that.", "That makes sense.", "I hear you."
+            ],
+            "neutral": [
+                "Mm-hmm.", "Right.", "Gotcha.", "Okay."
+            ],
+            "concise": [
+                "Mm.", "Yeah.", "Right."
+            ],
+        }
+        if phrases is not None:
+            self.phrases[style] = phrases
+
+    def pick_phrase(self) -> str:
+        import random
+        return random.choice(self.phrases.get(self.style, self.phrases["neutral"]))
+
+
+@dataclass
+class HPLSessionState:
+    """Runtime state for the Human Parity Layer (HPL‑1.0).
+
+    This object is stored on the conversation context and is the canonical
+    source of truth for timing, voice identity, interruption reflex, and
+    backchannel behavior.
+    """
+
+    # --- Voice identity & calibration (Organ 37) ---
+    voice_id: str = "alan_v4_calibrated"
+    voice_speed: float = 1.0
+    voice_pitch: float = 1.0
+    prosody_seed: Optional[int] = None
+    prosody_variance: float = 0.15
+    breath_injection: bool = True
+    imperfection_level: float = 0.25
+    calibration_mode: bool = False
+
+    # --- Timing & latency (Organ 36) ---
+    timing_budget_ms: int = 250
+    min_pause_ms: int = 40
+    max_pause_ms: int = 120
+    interruption_cutoff_ms: int = 80
+    last_user_speech_end: float = 0.0
+    last_model_token_time: float = 0.0
+
+    # --- Interruption reflex (Organ 38) ---
+    is_speaking: bool = False
+    user_interrupting: bool = False
+    pending_llm_stream: bool = False
+    cutoff_triggered: bool = False
+
+    # --- Backchannel brain (Organ 39) ---
+    backchannel_enabled: bool = True
+    backchannel_last_time: float = 0.0
+    backchannel_turn_count: int = 0
+    backchannel_emitted_count: int = 0
+    backchannel_profile: BackchannelProfile = field(default_factory=lambda: BackchannelProfile(style="neutral"))
+
+    # --- Gating flags ---
+    in_sprint: bool = False
+    in_bridge: bool = False
+    in_disclaimer: bool = False
+    in_sensitive_segment: bool = False  # emotional gating
+
+    # --- Governance (Organ 40) ---
+    policy_enforced: bool = True
+    disallowed_phrases: Set[str] = field(default_factory=set)
+    identity_ruleset: Dict[str, Any] = field(default_factory=dict)
+    last_governed_output: str = ""
+
+    # --- Session locking / voice fingerprint ---
+    greeting_voice_locked: bool = False
+    session_voice_fingerprint: str = ""
+
+    # --- Telemetry / debug ---
+    hpl_active: bool = True
+    debug_trace: List[str] = field(default_factory=list)
+
+    def compute_voice_fingerprint(self) -> str:
+        """Compute an immutable fingerprint for the current voice/timing configuration.
+
+        Used to ensure greeting audio, calibration, and live TTS all use the same
+        voice/prosody identity. If the fingerprint changes mid-call, the voice
+        will sound like a different Alan.
+        """
+        payload = {
+            "voice_id": self.voice_id,
+            "voice_speed": self.voice_speed,
+            "voice_pitch": self.voice_pitch,
+            "prosody_seed": self.prosody_seed,
+            "imperfection_level": self.imperfection_level,
+            "calibration_mode": bool(self.calibration_mode),
+        }
+        raw = json.dumps(payload, sort_keys=True)
+        return hashlib.sha256(raw.encode("utf-8")).hexdigest()
+
+
 class AQIConversationRelayServer:
     """
     WebSocket server for handling Twilio ConversationRelay conversations
     """
+
+    # [2026-03-12 FIX] CLASS-LEVEL shared dicts — the STT callback's `self` may differ
+    # from the WebSocket handler's `self` due to process lifecycle. By making these
+    # class-level, ALL instances share the same lookup tables.
+    active_conversations = {}
+    stream_sid_to_client_id = {}
+    _stt_drops = {}
+    _stt_context_map = {}  # [2026-03-13 FIX] stream_sid → (client_id, context) for eager rescue
+    _eab_overrides = {}    # [2026-03-13 FIX] call_sid → env_class for AMD hybrid classifier
+    # [2026-03-16 FIX] CLASS-LEVEL shared caches — prevents 2nd instance (embedded relay
+    # in control_api_fixed.py) from re-running 84+ TTS calls and blocking the event loop.
+    _shared_greeting_cache = {}
+    _shared_sprint_tts_cache = {}
 
     def __init__(self):
         # [PRE-WARM] Instantiate Agent Only ONCE per Server Start
@@ -2540,10 +2805,9 @@ class AQIConversationRelayServer:
              raise RuntimeError(f"[COUPLED BOOT] Alan failed to initialize: {e}")
 
 
-        self.active_conversations = {}
         self._conversations_lock = asyncio.Lock()
-        self.greeting_cache = {} # [FIX] Initialize Audio Cache
-        self.sprint_tts_cache = {}  # [2026-03-05 LATENCY FIX] Pre-cached sprint opener audio
+        self.greeting_cache = AQIConversationRelayServer._shared_greeting_cache  # [2026-03-16 FIX] Shared across instances
+        self.sprint_tts_cache = AQIConversationRelayServer._shared_sprint_tts_cache  # [2026-03-16 FIX] Shared across instances
         self.ring_tone_audio = generate_ring_tone()  # Pre-generate ring tone
         logger.info(f"[RING TONE] Generated {len(self.ring_tone_audio)} bytes of ring tone audio")
 
@@ -2600,6 +2864,10 @@ class AQIConversationRelayServer:
         # Placeholder KB for PGHS - using rapport layer as basic knowledge
         kb = self.rapport_layer 
         self.pghs = PostGenerationHallucinationScanner(self.system_config, kb, self.eos)
+        # [SAP-1 ETHICS] Ethical Sovereignty Engine — wired 2026-04-02
+        self.soul_core = SoulCore() if SAP1_WIRED else None
+        if self.soul_core:
+            logging.info(f"[ORGAN] SAP-1 status: {self.soul_core.get_status()}")
         self.mip = MerchantIdentityPersistence()
         self.mtsp = MultiTurnStrategicPlanner()
         self.bas = BiasAuditingSystem()
@@ -2688,7 +2956,6 @@ class AQIConversationRelayServer:
         self._llm_session.mount("https://", _adapter)
         self._llm_session.headers.update({"Content-Type": "application/json"})
         
-        self.stream_sid_to_client_id = {}
         aqi_stt_engine.register_stt_callback(self.on_stt_text)
         
         # [ZERO-LATENCY] Pre-cache ALL greeting variants as mulaw audio at startup.
@@ -2839,6 +3106,13 @@ class AQIConversationRelayServer:
         """[ZERO-LATENCY] Pre-synthesize all greeting variants at startup.
         Runs TTS for each greeting template and stores mulaw bytes in greeting_cache.
         This eliminates 300-600ms of TTS latency on the very first audio of every call."""
+        # [2026-03-16 FIX] Skip if cache already populated by a prior instance.
+        # The embedded relay in control_api_fixed.py creates a 2nd instance — without
+        # this guard, it re-runs 84+ synchronous TTS calls and blocks the event loop,
+        # preventing greeting playback on any call that arrives during the 2nd init.
+        if len(self.greeting_cache) > 0:
+            logger.info(f"[GREETING CACHE] Already populated ({len(self.greeting_cache)} entries) — skipping re-cache")
+            return
         if not self.tts_client:
             logger.warning("[GREETING CACHE] No TTS client — cannot pre-cache greetings")
             return
@@ -2856,7 +3130,8 @@ class AQIConversationRelayServer:
             try:
                 audio = self._openai_tts_sync(text)
                 if audio and len(audio) > 0:
-                    self.greeting_cache[text] = audio
+                    cache_key = self._greeting_cache_key(text, "neutral")
+                    self.greeting_cache[cache_key] = audio
                     consecutive_failures = 0  # Reset on success
                     return True
                 else:
@@ -2873,31 +3148,32 @@ class AQIConversationRelayServer:
             "Signature Card, Alan speaking."
         ]
         COLD = [
-            # [FEB 27 2026] PRECISION OPENERS — 7-10 words, fast delivery
-            "Hey, this is Alan. Is the owner around?",
-            "Hi, this is Alan. Is the owner available?",
-            "Hey, it's Alan. Is the owner or manager there?",
-            "Hey, this is Alan calling. Is the owner in?",
+            # [PROFESSIONAL OPENERS] Concise but polished, always with company name
             "Hi, this is Alan from Signature Card. Is the owner available?",
+            "Hello, this is Alan with Signature Card. May I speak with the owner?",
+            "Hi, this is Alan from Signature Card Services. Is the owner available?",
+            "Hello, this is Alan, Signature Card Services. Could I speak with the owner please?",
+            "Hi, this is Alan from Signature Card. Is the owner or manager available?",
         ]
         # [2026-03-09 PRE-CALL HARDENING] TIME-OF-DAY greetings — cached for zero variance
+        # [2026-03-13 SALES OS] Updated — company name always included
         TIME_OF_DAY = [
-            "Good morning, this is Alan. Is the owner around?",
-            "Good afternoon, this is Alan. Is the owner available?",
+            "Good morning, this is Alan from Signature Card. Is the owner available?",
+            "Good afternoon, this is Alan from Signature Card. Is the owner available?",
         ]
         # [2026-03-09 PRE-CALL HARDENING] SHORT greetings — minimal opener
         SHORT = [
-            "Hey, is the owner in?",
-            "Hey, is the owner or manager available?",
+            "Hi, is the owner available?",
+            "Hello, is the owner or manager available?",
         ]
         # [TWO-STAGE] Named greeting PREFIXES — cached so named greetings start instantly
         NAMED_PREFIXES = [
-            # SOFT PREFIXES (no company name)
-            "Hey, this is Alan.",
-            "Hi, this is Alan.",
-            "Hey, it's Alan.",
-            # STANDARD PREFIX (with company name — shortened)
+            # PROFESSIONAL PREFIXES (always with company name)
             "Hi, this is Alan from Signature Card.",
+            "Hello, this is Alan with Signature Card.",
+            "Hi, this is Alan from Signature Card Services.",
+            # STANDARD PREFIX
+            "Hello, this is Alan, Signature Card Services.",
         ]
         # [2026-03-04] INSTRUCTOR MODE greetings — pre-cache with "boss" placeholder
         # since that's the fallback when caller name isn't known.
@@ -2945,6 +3221,10 @@ class AQIConversationRelayServer:
         # ~15 phrases recur across 80%+ of calls. Each one needs ~400-500ms TTS
         # synthesis. By pre-caching their audio at boot, sprint first-audio drops
         # from 1400ms to ~900ms (sprint TTFT only, no TTS wait).
+        # [2026-03-13 MOVE-7] Expanded to 50 phrases for Groq llama-3.3.
+        # Llama uses different opener patterns than gpt-4o-mini — more varied,
+        # more natural. Wider cache = more instant-play turns. Includes bridge
+        # (10), clarification (5), and rapport (5) variants for ~35-40% hit rate.
         SPRINT_OPENER_PHRASES = [
             "Absolutely,",
             "That's a great question.",
@@ -2961,6 +3241,47 @@ class AQIConversationRelayServer:
             "That's actually really common.",
             "For sure.",
             "That makes sense.",
+            # [2026-03-13] Expanded — Groq/Llama common openers
+            "Got it,",
+            "Sure,",
+            "Right,",
+            "Yeah,",
+            "Okay,",
+            "Oh, got it!",
+            "Sounds good!",
+            "Sure thing!",
+            "One, two,",
+            "Got it, let's keep it conversational.",
+            "Gotcha,",
+            "I appreciate that.",
+            "Well,",
+            "So,",
+            "Look,",
+            # [2026-03-13 MOVE-7] Expanded 30→50: bridge, clarification, rapport variants.
+            # Wider cache pushes hit rate from ~20% to ~35-40%.
+            # --- Bridge variants ---
+            "Hey, totally understand.",
+            "No worries at all.",
+            "That's fair,",
+            "I really appreciate that.",
+            "Definitely,",
+            "Yeah, no, for sure.",
+            "Makes total sense.",
+            "Hey, I get it.",
+            "Absolutely, yeah.",
+            "That's a good point.",
+            # --- Clarification variants ---
+            "Just to make sure I understand,",
+            "So what you're saying is,",
+            "Let me make sure I got that right,",
+            "Okay, so,",
+            "Right, so,",
+            # --- Rapport variants ---
+            "That's awesome.",
+            "Oh, nice.",
+            "That's great to hear.",
+            "I hear you on that.",
+            "Yeah, that's smart.",
         ]
         sprint_cached = 0
         for phrase in SPRINT_OPENER_PHRASES:
@@ -2972,7 +3293,10 @@ class AQIConversationRelayServer:
         else:
             logger.info(f"[SPRINT CACHE] Pre-cached {sprint_cached}/{len(SPRINT_OPENER_PHRASES)} sprint opener phrases")
         # Store reference for fast lookup during calls
-        self.sprint_tts_cache = {k: v for k, v in self.greeting_cache.items() if k in SPRINT_OPENER_PHRASES}
+        self.sprint_tts_cache = {
+            k: v for k, v in self.greeting_cache.items()
+            if (k[0] if isinstance(k, tuple) else k) in SPRINT_OPENER_PHRASES
+        }
 
         # =====================================================================
         # [TURN-01 FAST RESPONSE CACHE] Pre-synthesize instant Turn-01 replies
@@ -2995,13 +3319,17 @@ class AQIConversationRelayServer:
         # [2026-03-02 FIX] Diversified T01 responses — removed "Quick question" from
         # 4 of 6 categories. The repeated phrase was reinforcing a loop where the LLM
         # mirrored it. Each response now uses distinct, natural phrasing.
+        # [PCU-1.0 RSE] Rapport Scaffolding Engine — softened T01 responses
+        # Previous "Quick question — are you..." pattern caused immediate hangups.
+        # Allen Fox (Call #6) hung up 14s after "Hey — so are you the owner or
+        # manager there?" RSE responses lead with warmth, not qualification.
         TURN01_RESPONSES = {
-            'ack_owner': "I do free rate reviews for business owners — are you guys accepting cards there?",
-            'ack_transfer': "Sure, take your time.",
+            'ack_owner': "I do free rate reviews for business owners — most are overpaying and don't realize it. When's the last time someone actually looked at your processing rates?",
+            'ack_transfer': "Of course, take your time.",
             'identity': "It's Alan from Signature Card Services — I do free rate reviews for business owners.",
-            'purpose': "I help business owners cut their card processing costs — takes about 30 seconds.",
-            'greeting': "Hey — so are you the owner or manager there?",
-            'busy': "No problem — when's a better time to call back?",
+            'purpose': "I do free statement reviews for business owners — I look at what you're paying on card processing and see if there's room to save. Takes about five minutes.",
+            'greeting': "This is Alan from Signature Card Services. I do free rate reviews for business owners — do you have a quick minute?",
+            'busy': "No problem — when's a good time to reach you?",
         }
         self._turn01_responses = TURN01_RESPONSES  # Store for runtime lookup
         t01_cached = 0
@@ -3014,6 +3342,20 @@ class AQIConversationRelayServer:
             return
         logger.info(f"[T01 CACHE] Pre-cached {t01_cached}/{len(TURN01_RESPONSES)} Turn-01 fast responses")
 
+    def _handle_rescued_stt(self, text, stream_sid, conversation_context, client_id):
+        """[2026-03-12 FIX] Handle STT text that was dropped by on_stt_text callback.
+        
+        Forces the mapping into place and calls on_stt_text directly.
+        This is the safety net for when the stt_callback bound method references
+        a self whose dicts don't contain the current call's mapping.
+        """
+        # Force both mappings into place
+        self.stream_sid_to_client_id[stream_sid] = client_id
+        if client_id not in self.active_conversations:
+            self.active_conversations[client_id] = conversation_context
+        # Now call on_stt_text — it will find the mapping
+        self.on_stt_text(text, stream_sid)
+
     def on_stt_text(self, text, stream_sid):
         """New speech arrived. Cancel anything in progress. Respond.
         
@@ -3024,11 +3366,47 @@ class AQIConversationRelayServer:
         """
         client_id = self.stream_sid_to_client_id.get(stream_sid)
         if not client_id:
-             logger.warning(f"[STT] No client_id for stream_sid {stream_sid}. Dropping: '{text}'")
-             return
+             # [2026-03-11 FIX] Defensive fallback — scan active_conversations
+             # for matching streamSid. Prevents silent call death when dict
+             # lookup fails due to rare race condition.
+             for _cid, _ctx in self.active_conversations.items():
+                 if _ctx.get('streamSid') == stream_sid:
+                     client_id = _cid
+                     # Repair the mapping so future lookups succeed
+                     self.stream_sid_to_client_id[stream_sid] = client_id
+                     logger.warning(f"[STT] stream_sid_to_client_id REPAIRED for {stream_sid} → {client_id} "
+                                    f"(dict had keys: {list(self.stream_sid_to_client_id.keys())})")
+                     break
+             if not client_id:
+                 # [2026-03-13 FIX] Eager rescue — use _stt_context_map before giving up.
+                 # This map is populated at stream start BEFORE STT session creation,
+                 # so it catches the race where stt_callback fires before the normal
+                 # dict propagation completes.
+                 _rescue = self._stt_context_map.get(stream_sid)
+                 if _rescue:
+                     client_id, _rescued_ctx = _rescue
+                     self.stream_sid_to_client_id[stream_sid] = client_id
+                     if client_id not in self.active_conversations:
+                         self.active_conversations[client_id] = _rescued_ctx
+                     logger.warning(f"[STT] EAGER RESCUE — recovered client_id {client_id} "
+                                    f"for stream_sid {stream_sid} from _stt_context_map")
+                 else:
+                     # [2026-03-12 FIX] Signal drop so caller (VAD commit) can retry directly
+                     self._stt_drops[stream_sid] = text
+                     logger.warning(f"[STT] No client_id for stream_sid {stream_sid}. Dropping: '{text}' "
+                                    f"(dict_keys={list(self.stream_sid_to_client_id.keys())}, "
+                                    f"active_sids={[c.get('streamSid') for c in self.active_conversations.values()]}, "
+                                    f"callback_self={id(self)})")
+                     return
         if client_id not in self.active_conversations:
-             logger.warning(f"[STT] client_id {client_id} not in active. Dropping: '{text}'")
-             return
+             # [2026-03-13 FIX] One more rescue attempt from _stt_context_map
+             _rescue2 = self._stt_context_map.get(stream_sid)
+             if _rescue2 and _rescue2[0] == client_id:
+                 self.active_conversations[client_id] = _rescue2[1]
+                 logger.warning(f"[STT] EAGER RESCUE (active_conversations) for client_id {client_id}")
+             else:
+                 logger.warning(f"[STT] client_id {client_id} not in active. Dropping: '{text}'")
+                 return
              
         context = self.active_conversations[client_id]
         websocket = context.get('websocket')
@@ -3078,7 +3456,9 @@ class AQIConversationRelayServer:
         # Check against all known greetings if we are early in the call
         # (Assuming greetings are cached in self.greeting_cache)
         if self.greeting_cache and len(messages) <= 2:
-            for greeting in self.greeting_cache.keys():
+            for key in self.greeting_cache.keys():
+                # Greeting cache keys may be tuples (greeting, prosody, voice, model, cal_mode)
+                greeting = key[0] if isinstance(key, tuple) else key
                 greeting_lower = greeting.lower().strip()
                 # Check for high similarity or prefix match
                 ratio = SequenceMatcher(None, text_lower, greeting_lower).ratio()
@@ -3123,6 +3503,11 @@ class AQIConversationRelayServer:
                         return
                     break
         
+        # Update emotional gating state based on detected sensitive content
+        hpl_state = context.get('_hpl_state')
+        if hpl_state:
+            self._update_emotional_state(hpl_state, text)
+
         # [STREAM GUARD] Don't process if stream already closed
         if context.get('stream_ended'):
             logger.info(f"[STT] Stream already ended. Dropping: '{text[:40]}'")
@@ -3191,6 +3576,17 @@ class AQIConversationRelayServer:
                     context['_env_done_mono'] = time.monotonic()
                     logger.info(f"[EAB] FIRST CLASSIFICATION: {_eab_result.env_class.name} "
                                 f"(conf={_eab_result.confidence:.2f}) → action={_eab_result.action.name}")
+
+                    # [2026-03-13 FIX] AMD HYBRID CLASSIFIER — publish EAB result by call_sid
+                    # so control_api_fixed can check before killing machine_start calls.
+                    # If EAB says HUMAN or LIVE_RECEPTIONIST, the voicemail block should
+                    # NOT kill this call even if Twilio AMD said machine_start.
+                    _eab_call_sid = context.get('call_sid', '')
+                    if _eab_call_sid:
+                        self._eab_overrides[_eab_call_sid] = _eab_result.env_class.name
+                        if _eab_result.env_class.name in ('HUMAN', 'LIVE_RECEPTIONIST'):
+                            logger.info(f"[AMD HYBRID] EAB={_eab_result.env_class.name} published for "
+                                        f"call {_eab_call_sid} — will override machine_start AMD")
 
                     # [CDC] Record environment classification
                     if CALL_CAPTURE_WIRED:
@@ -3387,8 +3783,25 @@ class AQIConversationRelayServer:
                 # misclassified. Re-check each subsequent merchant turn for VM/IVR evidence.
                 # If a clear VM/IVR pattern appears on turn 2+, abort immediately.
                 elif _eab_action in (EnvironmentAction.CONTINUE_MISSION, EnvironmentAction.FALLBACK):
+                    # [2026-03-13 CAMPAIGN FIX] Conversation guard — once a real
+                    # back-and-forth is established (4+ merchant turns), do NOT allow
+                    # EAB recheck to reclassify a live human as voicemail/IVR.
+                    # Humans saying "you've reached the office" or "our hours are"
+                    # on later turns must NOT kill an active conversation.
+                    # [2026-03-13 FIX v2] Count only role=user messages (merchant STT turns),
+                    # not total messages which includes system + assistant. The old check
+                    # (len(messages) >= 4) triggered after just 1 merchant utterance because
+                    # system prompt + greeting + response already padded the count to 4+.
+                    _eab_user_turns = sum(1 for m in context.get('messages', []) if m.get('role') == 'user')
+                    _eab_recheck_guarded = _eab_user_turns >= 4
                     _recheck = _eab.classify(text)
-                    if _recheck.action == EnvironmentAction.DROP_AND_ABORT:
+                    if _recheck.action == EnvironmentAction.DROP_AND_ABORT and _eab_recheck_guarded:
+                        logger.info(f"[EAB-RECHECK] CONVERSATION GUARD — VM recheck suppressed (user_turns={_eab_user_turns}) "
+                                    f"(class={_recheck.env_class.name}, conf={_recheck.confidence:.2f}, text='{text[:80]}')")
+                    elif _recheck.action == EnvironmentAction.DECLINE_AND_ABORT and _eab_recheck_guarded:
+                        logger.info(f"[EAB-RECHECK] CONVERSATION GUARD — answering-service recheck suppressed (user_turns={_eab_user_turns}) "
+                                    f"(class={_recheck.env_class.name}, conf={_recheck.confidence:.2f}, text='{text[:80]}')")
+                    elif _recheck.action == EnvironmentAction.DROP_AND_ABORT:
                         # VM detected on subsequent turn — abort
                         _merchant_name = context.get('prospect_info', {}).get('company', '')
                         _template_text = EnvironmentBehaviorTemplates.get_template(
@@ -3504,8 +3917,43 @@ class AQIConversationRelayServer:
                         context['_ccnm_ignore'] = False
                         # Fall through to normal pipeline
 
+                    # [2026-03-13 FIX] If reclassify detects VOICEMAIL during IVR loop, abort immediately.
+                    # Bug: reclassify overwrites last_result with max_cycles=0 (voicemail), causing
+                    # should_abort_loop() to return False forever. Now we check the reclassified ACTION
+                    # directly — if it's DROP_AND_ABORT, this is a voicemail, not an IVR.
+                    elif _reclass.action == EnvironmentAction.DROP_AND_ABORT:
+                        logger.info(f"[EAB] VOICEMAIL DETECTED IN IVR LOOP: {_eab_env} → {_reclass.env_class.name} "
+                                    f"(conf={_reclass.confidence:.2f}) on cycle {_cycle} — aborting")
+                        _merchant_name = context.get('prospect_info', {}).get('company', '')
+                        _template_text = EnvironmentBehaviorTemplates.get_template(
+                            _reclass.env_class, _merchant_name
+                        )
+                        if _template_text and websocket:
+                            try:
+                                asyncio.create_task(
+                                    self.synthesize_and_stream_greeting(
+                                        websocket, _template_text, context.get('streamSid')
+                                    )
+                                )
+                            except Exception:
+                                pass
+                        context['_evolution_outcome'] = 'voicemail_in_ivr_loop'
+                        context['_evolution_confidence'] = _reclass.confidence
+                        context['_evolution_band'] = 'high'
+                        context['_evolution_engagement'] = 0.0
+                        context['_ccnm_ignore'] = True
+                        _fsm = context.get('_call_fsm')
+                        if _fsm:
+                            _fsm.end_call(reason='voicemail_in_ivr_loop')
+                        else:
+                            context['stream_ended'] = True
+                        return
+
                     # Loop guard: exceeded max cycles for this environment
-                    elif _eab.should_abort_loop():
+                    # [2026-03-13 FIX] Also apply hard cap of 4 cycles — reclassify can change
+                    # last_result.max_cycles to 0 (voicemail class), making should_abort_loop()
+                    # return False forever. The hard cap catches this edge case.
+                    elif _eab.should_abort_loop() or _cycle > 4:
                         _merchant_name = context.get('prospect_info', {}).get('company', '')
                         _exit_line = "No worries, I'll try again later. Take care."
                         if websocket:
@@ -3619,6 +4067,24 @@ class AQIConversationRelayServer:
             if _ivr:
                 import time as _ivr_time
                 ivr_result = _ivr.add_utterance(text, _ivr_time.time())
+                # [2026-03-13 CALL-9 FIX] Instructor calls NEVER abort via IVR detector.
+                # Tim role-plays as merchants/gatekeepers — triggers IVR keyphrases.
+                # This is a SEPARATE code path from Cost Sentinel IVR checks.
+                _is_instructor_ivr = context.get('prospect_info', {}).get('instructor_mode', False)
+                _is_calibration_ivr = context.get('prospect_info', {}).get('calibration_mode', False)
+                if (_is_instructor_ivr or _is_calibration_ivr) and ivr_result.get('should_abort'):
+                    logger.info(f"[IVR] {'Instructor' if _is_instructor_ivr else 'Calibration'} bypass — IVR abort suppressed (score={ivr_result['score']}, reason={ivr_result['reason']})")
+                    ivr_result['should_abort'] = False
+                # [2026-03-13 CAMPAIGN FIX] Conversation guard — once 4+ merchant turns
+                # (real back-and-forth), do NOT abort via IVR detector.
+                # Receptionists saying "thank you for calling, please hold" on a
+                # live call must NOT kill an established conversation.
+                # [2026-03-13 FIX v2] Count only role=user messages, not total messages.
+                _ivr_user_turns = sum(1 for m in context.get('messages', []) if m.get('role') == 'user')
+                if not _is_instructor_ivr and ivr_result.get('should_abort') and _ivr_user_turns >= 4:
+                    logger.info(f"[IVR] CONVERSATION GUARD — IVR abort suppressed (user_turns={_ivr_user_turns}) "
+                                f"(score={ivr_result['score']}, reason={ivr_result['reason']})")
+                    ivr_result['should_abort'] = False
                 if ivr_result.get('should_abort'):
                     logger.warning(f"[IVR] ABORT TRIGGERED — score={ivr_result['score']}, reason={ivr_result['reason']}")
                     # Store IVR outcome in context for call_end recording
@@ -3856,16 +4322,22 @@ class AQIConversationRelayServer:
             # [ORGAN 8+9] Clause segmentation → mid-sentence prosody arc
             # Instead of one flat instruction, analyze the sentence structure
             # and build a narrated delivery contour for multi-clause sentences.
-            clauses = segment_into_clauses(text, prosody_intent)
-            if len(clauses) > 1:
-                tts_instructions = build_clause_arc_instructions(clauses, prosody_intent)
-                logger.info(f"[CLAUSE ARC] {len(clauses)} clauses → arc instruction for: '{text[:50]}'")
+            # [2026-03-16 FIX-3] Calibration: skip clause arc to prevent tone variation
+            _skip_clause_arc = getattr(self, '_tts_calibration_mode', False)
+            if not _skip_clause_arc:
+                clauses = segment_into_clauses(text, prosody_intent)
+                if len(clauses) > 1:
+                    tts_instructions = build_clause_arc_instructions(clauses, prosody_intent)
+                    logger.info(f"[CLAUSE ARC] {len(clauses)} clauses → arc instruction for: '{text[:50]}'")
+                else:
+                    tts_instructions = PROSODY_INSTRUCTIONS.get(prosody_intent, PROSODY_INSTRUCTIONS["neutral"])
             else:
                 tts_instructions = PROSODY_INSTRUCTIONS.get(prosody_intent, PROSODY_INSTRUCTIONS["neutral"])
             
             tts_speed = PROSODY_SPEED.get(prosody_intent, TIMING.tts_default_speed)  # [TIMING CONFIG]
             # [ORGAN 11] Apply signature speed bias — learned from human interaction
-            if speed_bias != 1.0:
+            # [2026-03-16 FIX-3] Calibration: no speed bias — flat 1.0 for consistency
+            if speed_bias != 1.0 and not _skip_clause_arc:
                 tts_speed = round(tts_speed * speed_bias, 2)
             
             tts_start = time.time()
@@ -3880,20 +4352,23 @@ class AQIConversationRelayServer:
             pcm_data = response.content
             mulaw_data = self._pcm24k_to_mulaw8k(pcm_data)
             
+            # [2026-03-16 FIX-3] Calibration: skip post-processing effects.
+            # Streaming TTS path doesn't apply these, so blocking path must
+            # also skip them to prevent multi-tone between sentences.
+            _skip_effects = getattr(self, '_tts_calibration_mode', False)
+            
             # [CLICK FIX] Onset fade — smooth CNG→speech transition at audio start
-            # Applied before breath injection so the fade sits at the CNG→speech
-            # boundary within the breath+CNG+audio sequence.
-            mulaw_data = apply_onset_fade(mulaw_data)
+            if not _skip_effects:
+                mulaw_data = apply_onset_fade(mulaw_data)
             
             # [ORGAN 10] Breath injection — splice in breath sample before audio
-            # This happens BEFORE tempo compression so the breath timing is natural
-            mulaw_data = inject_breath_before_audio(mulaw_data, prosody_intent, sentence_idx,
-                                                    breath_prob_bias=breath_prob_bias)
+            if not _skip_effects:
+                mulaw_data = inject_breath_before_audio(mulaw_data, prosody_intent, sentence_idx,
+                                                        breath_prob_bias=breath_prob_bias)
             
             # [ORGAN 11] Acoustic signature — Alan's deterministic identity fingerprint
-            # Micro-pause before advice, characteristic inhale on transitions,
-            # clarification cadence, thought-reset contour. Always consistent.
-            mulaw_data = apply_alan_signature(mulaw_data, prosody_intent, sentence_idx)
+            if not _skip_effects:
+                mulaw_data = apply_alan_signature(mulaw_data, prosody_intent, sentence_idx)
             
             # [TEMPO AMPLIFIER] Compress audio for faster playback
             mulaw_data = tempo_compress_audio(mulaw_data)
@@ -3958,14 +4433,20 @@ class AQIConversationRelayServer:
 
         try:
             # Build instructions — same logic as _openai_tts_sync
-            clauses = segment_into_clauses(text, prosody_intent)
-            if len(clauses) > 1:
-                tts_instructions = build_clause_arc_instructions(clauses, prosody_intent)
+            # [2026-03-16 FIX-4] Calibration: skip clause arc + speed bias
+            # to match blocking TTS path and prevent tone differences.
+            _skip_effects = getattr(self, '_tts_calibration_mode', False)
+            if not _skip_effects:
+                clauses = segment_into_clauses(text, prosody_intent)
+                if len(clauses) > 1:
+                    tts_instructions = build_clause_arc_instructions(clauses, prosody_intent)
+                else:
+                    tts_instructions = PROSODY_INSTRUCTIONS.get(prosody_intent, PROSODY_INSTRUCTIONS["neutral"])
             else:
                 tts_instructions = PROSODY_INSTRUCTIONS.get(prosody_intent, PROSODY_INSTRUCTIONS["neutral"])
 
             tts_speed = PROSODY_SPEED.get(prosody_intent, TIMING.tts_default_speed)
-            if speed_bias != 1.0:
+            if speed_bias != 1.0 and not _skip_effects:
                 tts_speed = round(tts_speed * speed_bias, 2)
 
             tts_start = time.time()
@@ -3975,13 +4456,18 @@ class AQIConversationRelayServer:
             chunks_sent = 0
             _deferred_chunk = None  # [CLICK FIX] Buffer last chunk for tail fade application
 
+            # [2026-03-16 FIX-5] Per-request timeout: 6s (was 10s — allowed 12s
+            # API stalls to pass through, causing 16s dead air + pipeline timeout).
+            # 6s catches stalls fast enough to fall back to blocking TTS (~3s)
+            # within the 30s calibration pipeline timeout.
             with self.tts_client.audio.speech.with_streaming_response.create(
                 model=self._tts_model,
                 voice=self._tts_voice,
                 input=text,
                 instructions=tts_instructions,
                 response_format="pcm",
-                speed=tts_speed
+                speed=tts_speed,
+                timeout=6.0
             ) as response:
                 for raw_chunk in response.iter_bytes(chunk_size=PCM_CHUNK_SIZE):
                     pcm_buffer += raw_chunk
@@ -4008,7 +4494,8 @@ class AQIConversationRelayServer:
 
                         # [CLICK FIX] Onset fade on first chunk, deferred-last for tail fade
                         if chunks_sent == 0:
-                            mulaw_chunk = apply_onset_fade(mulaw_chunk)
+                            if not _skip_effects:
+                                mulaw_chunk = apply_onset_fade(mulaw_chunk)
                             frame_queue.put(mulaw_chunk)  # First chunk: IMMEDIATE (preserves low latency)
                         else:
                             # Deferred pattern: send PREVIOUS chunk, hold current
@@ -4064,6 +4551,7 @@ class AQIConversationRelayServer:
 
         except Exception as e:
             logger.error(f"[TTS-STREAM] Streaming failed: {e}. Falling back to blocking TTS.")
+            _fb_start = time.time()
             try:
                 full_audio = self._openai_tts_sync(
                     text, prosody_intent, sentence_idx, speed_bias, breath_prob_bias
@@ -4071,7 +4559,9 @@ class AQIConversationRelayServer:
                 if full_audio:
                     frame_queue.put(full_audio)
                 frame_queue.put(None)
-                return 1000 * (time.time() - time.time()) if False else 0.0
+                _fb_ms = 1000 * (time.time() - _fb_start)
+                logger.info(f"[TTS-STREAM] Blocking fallback completed in {_fb_ms:.0f}ms: '{text[:40]}'")
+                return _fb_ms
             except Exception as e2:
                 logger.error(f"[TTS-STREAM] Fallback also failed: {e2}")
                 frame_queue.put(None)
@@ -4265,6 +4755,39 @@ class AQIConversationRelayServer:
              if hasattr(alan_ai, 'clear_context'):
                 alan_ai.clear_context()
              logger.info(f"[ALAN AI] AgentAlanBusinessAI initialized for client {client_id} (Context Purged)")
+
+             # [SELF-AWARENESS] Organism health check at call start — wired 2026-04-02
+             # Checks internal load + operational context (quiet hours, rush window).
+             # Fail-open: any error is logged at DEBUG level and call proceeds normally.
+             if hasattr(alan_ai, 'perceive_self'):
+                 try:
+                     _sa_local_hour = datetime.now().hour
+                     _sa_internal = {
+                         "cpu_percent": 0.0,       # psutil not required — defaults to OK
+                         "memory_percent": 0.0,
+                         "event_loop_lag_ms": 0.0,
+                         "active_calls": len(self.active_conversations),
+                         "queued_tasks": 0,
+                         "error_rate_5m": 0.0,
+                     }
+                     _sa_context = {
+                         "local_hour": _sa_local_hour,
+                         "is_weekend": datetime.now().weekday() >= 5,
+                         "is_quiet_hours": _sa_local_hour < 8 or _sa_local_hour >= 21,
+                         "is_rush_window": _sa_local_hour in (11, 12, 17, 18),
+                         "overnight_monitor_mode": False,
+                         "global_active_calls": len(self.active_conversations),
+                         "global_queue_depth": 0,
+                     }
+                     _sa_result = alan_ai.perceive_self(_sa_internal, _sa_context)
+                     _sa_state = _sa_result.get('sovereign_state', 'unknown')
+                     _sa_action = _sa_result.get('action', 'normal_operation')
+                     logger.info(f"[SELF-AWARENESS] {_sa_state} → {_sa_action}")
+                     if _sa_action in ('shed_load_and_pause_new_calls', 'restrict_outbound'):
+                         logger.warning(f"[SELF-AWARENESS] {_sa_result.get('context_log_message', _sa_result.get('internal_log_message', ''))}")
+                 except Exception as _sa_e:
+                     logger.debug(f"[SELF-AWARENESS] Perception failed (non-fatal): {_sa_e}")
+
              # [ORGAN] Hook 3 — Agent Wired (deferred until conversation_context exists)
         except Exception as e:
             logger.error(f"[ALAN AI] Initialization failed: {e}. Falling back to minimal stub.")
@@ -4720,8 +5243,28 @@ class AQIConversationRelayServer:
                                 conversation_context['stream_started'] = True
                             conversation_context['websocket'] = websocket 
                             self.stream_sid_to_client_id[stream_sid] = client_id
+                            # [2026-03-13 FIX] Eagerly store reverse mapping so on_stt_text
+                            # can find the context even if the normal lookup path fails.
+                            # This is the earliest possible moment — BEFORE STT session creation.
+                            conversation_context['_client_id'] = client_id
+                            self._stt_context_map[stream_sid] = (client_id, conversation_context)
+                            logger.info(f"[MAPPING] stream_sid_to_client_id[{stream_sid}] = {client_id} "
+                                        f"(dict_id={id(self.stream_sid_to_client_id)}, "
+                                        f"server_id={id(self)}, total_keys={len(self.stream_sid_to_client_id)})")
                             
                             logger.info(f"[TWILIO] Stream Started: {stream_sid} | Call: {call_sid}")
+
+                            # [2026-03-13 MOVE-2] Fire sprint pre-warms at T-0 (call connect).
+                            # Previously fired during greeting synthesis (~1-2s later). By warming
+                            # both Groq and OpenAI TCP+TLS connections as soon as the stream starts,
+                            # the first sprint and full LLM calls skip cold handshake entirely.
+                            # Saves 150-250ms on first sprint response.
+                            loop = asyncio.get_running_loop()
+                            agent = conversation_context.get('agent_instance')
+                            if agent:
+                                asyncio.ensure_future(loop.run_in_executor(self.executor, self._prewarm_llm_connection, agent))
+                            asyncio.ensure_future(loop.run_in_executor(self.executor, self._prewarm_groq_connection))
+                            conversation_context['_prewarm_fired_t0'] = True
 
                             # [AIRFRAME] Initialize conversation governor for this call
                             if _GOVERNANCE_WIRED:
@@ -4770,6 +5313,24 @@ class AQIConversationRelayServer:
                                 _live_monitor.register_call(call_sid, datetime.now())
                             
                             aqi_stt_engine.create_stt_session(stream_sid)
+                            
+                            # [2026-03-13 MOVE-1] Flush early media buffer into STT.
+                            # Audio frames arriving before stream 'start' event are captured
+                            # in _early_media_buffer but never fed to STT. Without this flush,
+                            # the first 40-80ms of human speech is silently dropped — causing
+                            # the STT to miss the first utterance word(s) and forcing a 5s
+                            # watchdog timeout or producing garbled partial transcripts.
+                            # Flushing here guarantees frame-0 coverage.
+                            _early_buf = conversation_context.get('_early_media_buffer', [])
+                            if _early_buf:
+                                logger.info(f"[PRE-STT BUFFER] Flushing {len(_early_buf)} early frames into STT")
+                                for _ebf in _early_buf:
+                                    # Fire-and-forget — process_audio_chunk is async but we
+                                    # schedule each frame to maintain ordering
+                                    asyncio.ensure_future(aqi_stt_engine.process_audio_chunk(
+                                        stream_sid, _ebf, 'audio/ulaw'
+                                    ))
+                                conversation_context['_early_media_buffer'] = []
                             
                             # [REPLICATION] Register this call as an active Alan instance
                             if REPLICATION_WIRED:
@@ -4833,7 +5394,14 @@ class AQIConversationRelayServer:
                             # active call, something went wrong (race condition, STT failure).
                             async def _turn_watchdog(ctx, cid):
                                 try:
-                                    await asyncio.sleep(10.0)
+                                    # [2026-03-11 FIX] Instructor calls get 20s before watchdog
+                                    # (was 10s for all). Greeting takes ~3s to stream, then Tim
+                                    # needs time to process and speak. 10s caused "I'm right here"
+                                    # re-prompt to fire while Tim was still listening.
+                                    _is_instructor_wd = ctx.get('prospect_info', {}).get('instructor_mode', False)
+                                    _is_calibration_wd = ctx.get('prospect_info', {}).get('calibration_mode', False)
+                                    _watchdog_delay = 20.0 if (_is_instructor_wd or _is_calibration_wd) else 10.0
+                                    await asyncio.sleep(_watchdog_delay)
                                     if ctx.get('stream_ended'):
                                         return  # Call already ended
                                     msgs = ctx.get('messages', [])
@@ -4850,23 +5418,34 @@ class AQIConversationRelayServer:
                                         _ws_sid = ctx.get('streamSid')
                                         if _ws_sid:
                                             try:
+                                                # [2026-03-12 FIX] Ensure mapping before finalize
+                                                self.stream_sid_to_client_id[_ws_sid] = cid
                                                 await aqi_stt_engine.finalize_and_clear(_ws_sid)
                                                 logger.info(f"[WATCHDOG] Forced STT finalize for {_ws_sid}")
+                                                # [2026-03-12 FIX] Rescue dropped transcripts
+                                                if _ws_sid in self._stt_drops:
+                                                    _wd_text = self._stt_drops.pop(_ws_sid)
+                                                    logger.warning(f"[WATCHDOG-RESCUE] Callback dropped '{_wd_text[:60]}' — handling directly")
+                                                    self._handle_rescued_stt(_wd_text, _ws_sid, ctx, cid)
                                             except Exception as _stt_err:
                                                 logger.debug(f"[WATCHDOG] STT finalize failed: {_stt_err}")
                                         
                                         # [2026-03-04 RE-PROMPT SAFETY NET] If after forced finalize
                                         # there's STILL 0 user turns after 2s grace, Alan re-prompts
                                         # to keep the conversation alive. This prevents dead silence.
+                                        # [2026-03-11 FIX] Instructor calls skip re-prompt entirely.
+                                        # Tim is the boss — he'll speak when he's ready.
+                                        # [2026-03-11 FIX v2] Changed re-prompt from "I'm right here"
+                                        # (unprofessional) to natural business opener.
                                         await asyncio.sleep(2.0)
                                         if ctx.get('stream_ended'):
                                             return
                                         _user_turns_after = sum(1 for m in ctx.get('messages', []) if m.get('user', '').strip())
-                                        if _user_turns_after == 0:
+                                        if _user_turns_after == 0 and not _is_instructor_wd:
                                             _ws = ctx.get('websocket')
                                             _ss = ctx.get('streamSid')
                                             if _ws and _ss:
-                                                _reprompt = "I'm right here — what's on your mind?"
+                                                _reprompt = "Hey, can you hear me okay?"
                                                 logger.warning(f"[WATCHDOG] Re-prompting: '{_reprompt}'")
                                                 try:
                                                     await self.synthesize_and_stream_greeting(_ws, _reprompt, _ss)
@@ -4912,9 +5491,9 @@ class AQIConversationRelayServer:
                                 _IVR_TIME_LIMIT = 90.0   # Max time for IVR-flagged call
                                 _ZERO_TURN_LIMIT = 40.0  # Max time with 0 merchant turns (was 60 — 40s after sentinel start = 58s total)
                                 _HARD_MAX_DURATION = 600.0  # 10 min absolute backstop — supports 40+ turn deep conversations
-                                _HARD_MAX_TURNS = 30     # [2026-02-28] Absolute turn backstop. No call ever exceeds 30 turns.
+                                _HARD_MAX_TURNS = 60     # [2026-04-03] Raised from 30→60. Instructor/calibration calls bypass this entirely.
                                                          # Catches IVR loops where duration tracking fails (78-turn salon loop).
-                                                         # Real human conversations rarely exceed 20 turns.
+                                                         # Real human conversations rarely exceed 20 turns; 60 is belt-and-suspenders.
                                 try:
                                     await asyncio.sleep(18.0)  # Give call time to establish + greeting to land (restored from 8)
                                     while not ctx.get('stream_ended'):
@@ -4940,6 +5519,13 @@ class AQIConversationRelayServer:
                                         now_ts = time.time()
                                         silence_duration = (now_ts - last_speech) if last_speech > 0 else elapsed
 
+                                        # [2026-03-13 CALL-8 FIX] Define _is_instructor_call EARLY —
+                                        # before any CHECK uses it. Previously defined at line ~5339,
+                                        # but CHECK 0 (HARD MAX DURATION) at line ~5148 used it first
+                                        # → UnboundLocalError crashed sentinel, disabling ALL protections.
+                                        _is_instructor_call = ctx.get('prospect_info', {}).get('instructor_mode', False)
+                                        _is_calibration_call_sentinel = ctx.get('prospect_info', {}).get('calibration_mode', False)
+
                                         # --- CHECK 0: INBOUND HEARTBEAT ---
                                         if INBOUND_SENSITIZER_WIRED and _inbound_sensitizer and cid:
                                             _hb = _inbound_sensitizer.check_heartbeat(cid)
@@ -4957,11 +5543,13 @@ class AQIConversationRelayServer:
                                                 break
 
                                         # --- CHECK 0: HARD MAX TURNS BACKSTOP ---
-                                        # [2026-02-28] No call EVER exceeds 30 turns. Period.
+                                        # [2026-02-28] No call EVER exceeds 60 turns. Period.
                                         # Catches IVR loops where duration tracking fails.
                                         # Data: 78-turn salon call showed 0s duration — the
                                         # duration backstop never fired. Turn count is reliable.
-                                        if merchant_turns >= _HARD_MAX_TURNS:
+                                        # [2026-04-03] Raised 30→60. Instructor/calibration bypass added — training
+                                        # calls have no turn ceiling; duration backstop (1800s) is the only limit.
+                                        if merchant_turns >= _HARD_MAX_TURNS and not _is_instructor_call and not _is_calibration_call_sentinel:
                                             logger.warning(
                                                 f"[COST SENTINEL] HARD MAX TURNS KILL — {merchant_turns} turns "
                                                 f"(limit={_HARD_MAX_TURNS}). elapsed={elapsed:.0f}s. "
@@ -4992,10 +5580,12 @@ class AQIConversationRelayServer:
                                         # IVR hold music, broken connections, etc.
                                         # [LONG CONV] Raised from 300s (5 min) to 600s (10 min)
                                         # to support 20-40+ turn deep consultative conversations.
-                                        if elapsed > _HARD_MAX_DURATION:
+                                        # [2026-03-13 CALL-7 FIX] Instructor mode: 30 min limit
+                                        _eff_max_duration = 1800.0 if (_is_instructor_call or _is_calibration_call_sentinel) else _HARD_MAX_DURATION
+                                        if elapsed > _eff_max_duration:
                                             logger.warning(
                                                 f"[COST SENTINEL] HARD MAX KILL — {elapsed:.0f}s elapsed "
-                                                f"(limit={_HARD_MAX_DURATION:.0f}s). turns={merchant_turns}. "
+                                                f"(limit={_eff_max_duration:.0f}s). turns={merchant_turns}. "
                                                 f"Absolute time backstop. Force disconnect."
                                             )
                                             # [PHASE 2] FSM: → ENDED (max_duration_kill)
@@ -5240,7 +5830,13 @@ class AQIConversationRelayServer:
                                             break
 
                                         # If >30% of merchant turns match IVR phrases, it's not a real conversation (was 40%)
+                                        # [2026-03-13 CALL-7 FIX] Instructor mode bypass — Tim role-plays
+                                        # as prospects who say "what company are you with?" etc.
+                                        # These match IVR phrases but are training, not IVR.
                                         _is_ivr_conversation = (merchant_turns >= 2 and _ivr_turn_count / max(merchant_turns, 1) > 0.3)
+                                        if _is_ivr_conversation and (_is_instructor_call or _is_calibration_call_sentinel):
+                                            logger.info(f"[COST SENTINEL] IVR transcript kill BYPASSED — {'instructor' if _is_instructor_call else 'calibration'} mode call")
+                                            _is_ivr_conversation = False
                                         if _is_ivr_conversation and elapsed > 30.0:
                                             logger.warning(
                                                 f"[COST SENTINEL] TRANSCRIPT IVR KILL — {elapsed:.0f}s elapsed, "
@@ -5277,7 +5873,8 @@ class AQIConversationRelayServer:
                                         # If IVR detector has flagged is_ivr but hasn't hit abort threshold,
                                         # use time as the tiebreaker
                                         _ivr_det = ctx.get('_ivr_detector')
-                                        if _ivr_det and elapsed > _IVR_TIME_LIMIT:
+                                        # [2026-03-13 CALL-7 FIX] Instructor mode bypass for IVR time kill
+                                        if _ivr_det and elapsed > _IVR_TIME_LIMIT and not _is_instructor_call and not _is_calibration_call_sentinel:
                                             try:
                                                 _ivr_state = _ivr_det.get_state() if hasattr(_ivr_det, 'get_state') else {}
                                                 _ivr_score = _ivr_state.get('score', 0) if isinstance(_ivr_state, dict) else 0
@@ -5311,7 +5908,9 @@ class AQIConversationRelayServer:
                                         # Call has been going on but no merchant has spoken meaningfully
                                         # [FIX] Use meaningful_turns (3+ words) instead of merchant_turns
                                         # to prevent STT noise from creating phantom turns
-                                        if meaningful_turns == 0 and elapsed > _ZERO_TURN_LIMIT:
+                                        # [2026-03-13 CALL-7 FIX] Instructor mode bypass — Tim may
+                                        # pause for extended periods while coaching.
+                                        if meaningful_turns == 0 and elapsed > _ZERO_TURN_LIMIT and not _is_instructor_call and not _is_calibration_call_sentinel:
                                             logger.warning(
                                                 f"[COST SENTINEL] ZERO-TURN KILL — {elapsed:.0f}s elapsed, "
                                                 f"0 meaningful turns (raw={merchant_turns}). Air-call detected. Force disconnect."
@@ -5328,7 +5927,11 @@ class AQIConversationRelayServer:
                                             break
 
                                         # --- CHECK 4: Air-Call Silence Detection ---
-                                        if silence_duration >= _SILENCE_KILL:
+                                        # [2026-03-13 CALL-7 FIX] Instructor mode: raise limits
+                                        # Tim speaks in long paragraphs, pauses to think.
+                                        _eff_silence_kill = 300.0 if (_is_instructor_call or _is_calibration_call_sentinel) else _SILENCE_KILL
+                                        _eff_silence_warn = 120.0 if (_is_instructor_call or _is_calibration_call_sentinel) else _SILENCE_WARNING
+                                        if silence_duration >= _eff_silence_kill:
                                             logger.warning(
                                                 f"[COST SENTINEL] SILENCE KILL — {silence_duration:.0f}s silence. "
                                                 f"Force disconnect. elapsed={elapsed:.0f}s, turns={merchant_turns}"
@@ -5352,7 +5955,7 @@ class AQIConversationRelayServer:
                                             except Exception as _bye_err:
                                                 logger.debug(f"[COST SENTINEL] Goodbye synthesis failed (silence kill): {_bye_err}")
                                             break
-                                        elif silence_duration >= _SILENCE_WARNING and not _sentinel_asked:
+                                        elif silence_duration >= _eff_silence_warn and not _sentinel_asked:
                                             logger.info(
                                                 f"[COST SENTINEL] SILENCE WARNING — {silence_duration:.0f}s silence. "
                                                 f"Alan asking 'Are you still there?'"
@@ -5465,7 +6068,15 @@ class AQIConversationRelayServer:
                                 # ============================================================
                                 
                                 _current_state = conversation_context.get('conversation_state')
-                                _echo_cooldown = 0.8  # seconds — covers Twilio's 400-800ms buffer tail. Was 2.0s which made Alan deaf to fast responses.
+                                _echo_cooldown = 0.5  # [2026-03-13 LATENCY FIX] 0.8→0.5s. Cold-called merchants
+                                                      # respond fast — 0.8s made Alan deaf for too long after speaking.
+                                                      # Twilio buffer tail is ~300-500ms; 0.5s covers it without waste.
+                                # [GOA-1.0] During listen gate, shorten cooldown to configured value.
+                                # Segment 1 is ~1.5s cached audio — Twilio buffer tail is only ~200-400ms.
+                                # Full 0.8s cooldown eats into the 1.5s gate window, leaving only 0.4s
+                                # of active VAD — too tight. Default 0.3s balances echo rejection vs responsiveness.
+                                if conversation_context.get('_goa_listen_gate_active'):
+                                    _echo_cooldown = TIMING.get('goa', 'echo_cooldown_during_gate_s', 0.15)  # [2026-03-13] 0.3→0.15s — hear human faster during GOA gate
                                 _responding_ended = conversation_context.get('responding_ended_at', 0)
                                 _in_cooldown = (time.time() - _responding_ended) < _echo_cooldown
                                 # HUMAN MODEL: "is Alan talking" is a physical fact
@@ -5566,15 +6177,42 @@ class AQIConversationRelayServer:
                                                                     # 3200 = only loud, deliberate talk-over triggers barge-in.
                                                                     # Tim: "interruptions were a killer" on calls 7+8.
                                     SILENCE_THRESHOLD = 250     # Silence floor
-                                    SILENCE_DURATION = 0.50     # [2026-03-10 CALL-9] Restored 0.45→0.50s.
-                                                                # 0.45s caused premature turn-commit on natural pauses
-                                                                # (300-450ms range) — Alan jumped in mid-thought.
-                                                                # 0.50s (500ms) is the safe boundary. Early sprint
-                                                                # at 150ms masks perceived latency.
+                                    SILENCE_DURATION = 0.32     # [2026-03-13 MOVE-5] 0.38→0.32s.
+                                                                # Merchants speak slower/clearer than instructors.
+                                                                # Natural pauses 150-250ms; 320ms is safely above.
+                                                                # Combined with early sprint at 80ms, total pipeline
+                                                                # dead air is ~320ms silence + STT + sprint — masked
+                                                                # by bridge/sprint cache hits.
                                     BARGE_IN_CONSECUTIVE_FRAMES = 3   # Normal mode: 60ms sustained
                                     ECHO_BARGE_IN_FRAMES = 15         # [2026-03-10 CALL-9] Raised 12→15 (300ms sustained).
                                                                       # 240ms still caught backchannels. 300ms = only
                                                                       # deliberate, sustained interruption triggers barge-in.
+                                    
+                                    # ─── [2026-03-11 CALL-4 FIX] INSTRUCTOR MODE VAD OVERRIDE ───
+                                    # Call #4: Tim said "Be quiet, please", "Not interrupting" 3x,
+                                    # "I'm trying to tell you. Be quiet, please."
+                                    # Root cause: 0.50s silence commit + 300ms barge-in is fine for
+                                    # business calls (snappy responses), but instructor coaching uses
+                                    # long-form teaching with natural pauses of 0.5-2.0s. Alan was
+                                    # committing mid-thought fragments and responding, then Tim's
+                                    # continued speech triggered barge-in cascades (10 interrupts).
+                                    #
+                                    # Fix: For instructor calls only:
+                                    #   SILENCE_DURATION: 0.50→1.50s — let Tim finish paragraphs
+                                    #   ECHO_BARGE_IN_FRAMES: 15→45 (900ms sustained) — only
+                                    #     very deliberate, sustained talk-over triggers barge-in
+                                    #   ECHO_SPEECH_THRESHOLD: 3200→5000 — ignore casual overlap
+                                    # Business calls are UNCHANGED — 0.50s snappy cadence preserved.
+                                    _is_instructor_vad = conversation_context.get('prospect_info', {}).get('instructor_mode', False)
+                                    _is_calibration_vad = conversation_context.get('prospect_info', {}).get('calibration_mode', False)
+                                    if _is_instructor_vad:
+                                        SILENCE_DURATION = 1.20     # [2026-04-03] Restored to 1.20s for instructor mode.
+                                                                    # 0.55s was too aggressive — Alan fired a new pipeline
+                                                                    # during Tim's natural inter-sentence pauses (0.5-1.0s),
+                                                                    # causing continuous pipeline cycling. 1.20s allows Tim
+                                                                    # to pause between thoughts without triggering Alan.
+                                        ECHO_BARGE_IN_FRAMES = 20   # [2026-04-03] 45→20 (400ms). 900ms caused overtalking.
+                                        ECHO_SPEECH_THRESHOLD = 3500 # [2026-04-03] 5000→3500. Match close to normal speaking threshold.
                                     
                                     # Select threshold based on whether Alan is talking
                                     active_threshold = ECHO_SPEECH_THRESHOLD if _is_alan_talking else SPEECH_THRESHOLD
@@ -5653,6 +6291,12 @@ class AQIConversationRelayServer:
                                                  # buffer hiccups and audio artifacts.
                                                  logger.info(f"[VAD] User Started Speaking (RMS: {rms}, sustained {conversation_context['vad_speech_frames']} frames)")
                                                  conversation_context['vad_state'] = 'speaking'
+                                                 # [GOA-1.0] Signal listen gate if active — human spoke!
+                                                 # This wakes up smart_greeting_routine to skip segment 2.
+                                                 _goa_event = conversation_context.get('_goa_listen_event')
+                                                 if _goa_event and not _goa_event.is_set():
+                                                     _goa_event.set()
+                                                     logger.info(f"[GOA-1.0] Human spoke during listen gate (RMS: {rms}) — signaling greeting routine")
                                                  # [EARLY-SPRINT] Reset flags for new turn
                                                  conversation_context['_early_stt_fired'] = False
                                                  conversation_context['_early_stt_text'] = None
@@ -5670,6 +6314,27 @@ class AQIConversationRelayServer:
                                             pass
                                         else:
                                             # Already in speaking state — keep tracking
+                                            # [2026-03-13 MOVE-4] VAD_PEAK trigger: fire early STT
+                                            # snapshot during speech peak, not only at silence edge.
+                                            # When the user has spoken for ≥200ms (10 frames at 20ms),
+                                            # and we haven't fired early STT yet, snapshot the buffer
+                                            # proactively. This shifts STT start ~100ms earlier by
+                                            # starting transcription while the user is still talking
+                                            # (STT API handles incomplete utterances well with Whisper).
+                                            _peak_frames = conversation_context.get('vad_speech_frames', 0)
+                                            if (EARLY_SPRINT_ENABLED
+                                                and not _is_calibration_vad  # [2026-03-16] No sprint for calibration — quality over latency
+                                                and not _is_instructor_vad   # [2026-04-03] No VAD_PEAK sprint for instructor — fires WHILE Tim is talking. Instructor mode is a listening exercise, not a latency exercise. Bridge utterance covers acknowledgment.
+                                                and not conversation_context.get('_early_stt_fired')
+                                                and _current_state != 'FIRST_GREETING_PENDING'
+                                                and not _is_alan_talking
+                                                and _peak_frames >= 10  # ≥200ms of sustained speech
+                                                and rms > SPEECH_THRESHOLD * 2):  # True peak, not noise
+                                                # Snapshot STT buffer for speculative early transcription
+                                                conversation_context['_early_stt_fired'] = True
+                                                conversation_context['_early_sprint_mono'] = time.monotonic()
+                                                logger.info(f"[VAD_PEAK] Speech peak trigger: RMS={rms}, frames={_peak_frames} — firing early STT")
+                                                asyncio.create_task(self._fire_early_sprint_pipeline(conversation_context))
                                             pass
                                         
                                         conversation_context['vad_last_speech'] = now
@@ -5684,15 +6349,36 @@ class AQIConversationRelayServer:
                                         # At the FIRST frame where silence is detected after speech,
                                         # snapshot the STT buffer and fire early STT → early sprint.
                                         # Normal path (silence commit → finalize → full LLM) is unchanged.
+                                        # [2026-03-11 CALL-4] Instructor mode: raise sprint edge from
+                                        # 0.15→0.80s — Tim speaks in paragraphs with natural pauses.
+                                        # Firing sprints at 150ms wastes LLM+TTS calls on fragments
+                                        # that will be discarded when full sentence arrives at 1.5s.
+                                        # [2026-03-13 CALL-5] Tightened 0.80→0.60s — reverted.
+                                        # [2026-03-13 CALL-6] REVERTED 0.60→0.80s — Call 6 regression:
+                                        # sprint fired on STT fragments, produced disconnected
+                                        # responses. Tim: "You're not talking very well."
+                                        _sprint_edge = 0.40 if _is_instructor_vad else 0.08  # [2026-03-13 MOVE-5] business 0.10→0.08s
+                                        # [2026-03-13 LATENCY FIX] Instructor sprint edge 0.80→0.40s.
+                                        # At 0.80s, 100% of early sprints aborted ("User resumed speaking").
+                                        # Tim's shortest pauses are ~300ms. At 0.40s, sprint fires during
+                                        # genuine end-of-sentence pauses and has time to complete before
+                                        # silence commits at 0.90s, giving a 500ms window for early sprint
+                                        # to produce usable results. Previous 0.60s attempt (Call #5) was
+                                        # reverted for quality — but that was with SILENCE_DURATION=1.50s.
+                                        # At 0.90s silence, 0.40s sprint edge is correctly proportioned.
                                         _early_sprint_ok = (
                                             EARLY_SPRINT_ENABLED
+                                            and not _is_calibration_vad  # [2026-03-16] No sprint for calibration — quality over latency
+                                            and not _is_instructor_vad   # [2026-04-03] No silence-edge sprint for instructor.
+                                                                         # Sprint at 0.40s fires into Tim's natural inter-sentence
+                                                                         # pauses (0.5-1.0s), interrupting him before he's done.
+                                                                         # Instructor mode = listen first. Alan waits the full
+                                                                         # SILENCE_DURATION (1.20s). Bridge utterance covers
+                                                                         # acknowledgment during the processing window.
                                             and not conversation_context.get('_early_stt_fired')
                                             and _current_state != 'FIRST_GREETING_PENDING'
                                             and not _is_alan_talking
-                                            and silence_elapsed >= 0.15  # [2026-03-10 CALL-8] Was 0.20→0.15s.
-                                                                         # 150ms confirmed silence before early sprint.
-                                                                         # 50ms faster speculative start. Still safe —
-                                                                         # micro-pauses are <100ms, this clears them.
+                                            and silence_elapsed >= _sprint_edge
                                         )
                                         # EAB guard: skip if environment classified as non-human
                                         if _early_sprint_ok:
@@ -5711,7 +6397,7 @@ class AQIConversationRelayServer:
                                             )
                                         
                                         if silence_elapsed > SILENCE_DURATION:
-                                            logger.info(f"[VAD] Silence Detected ({silence_elapsed:.2f}s). Committing Turn.")
+                                            logger.info(f"[VAD] Silence Detected ({silence_elapsed:.2f}s). Committing Turn. [SILENCE_DURATION={SILENCE_DURATION:.2f}s instructor={_is_instructor_vad}]")
                                             conversation_context['vad_state'] = 'silence'
                                             
                                             # [2026-03-03] Pause telephony health during LLM processing —
@@ -5722,9 +6408,52 @@ class AQIConversationRelayServer:
                                             
                                             # [INSTRUMENT] Stamp VAD end — pipeline clock starts here
                                             conversation_context['_vad_end_mono'] = time.monotonic()
+
+                                            # [HPL 36] Update HPL timing state (user speech end, latency budgeting)
+                                            hpl_state = conversation_context.get('_hpl_state')
+                                            if hpl_state:
+                                                hpl_state.last_user_speech_end = time.monotonic()
+                                                hpl_state.pending_llm_stream = True
+                                                # Reset interruption flags for new turn
+                                                hpl_state.cutoff_triggered = False
+
+                                            # Start the HPL timing governor (Organ 36)
+                                            try:
+                                                self._hpl_start_timing_governor(conversation_context)
+                                            except Exception:
+                                                pass
+
+                                            # [2026-03-12 FIX] Ensure mapping exists before STT finalize fires callback.
+                                            # Root cause: stt_callback → on_stt_text was finding empty dicts.
+                                            _vad_sid = conversation_context['streamSid']
+                                            self.stream_sid_to_client_id[_vad_sid] = client_id
                                             
                                             # TRIGGER THE MODEL
-                                            await aqi_stt_engine.finalize_and_clear(conversation_context['streamSid'])
+                                            # [2026-03-13 MOVE-9] Sprint speculation: if early STT text
+                                            # is available, fire a sprint LLM concurrently with final STT.
+                                            # This overlaps 50-100ms of STT latency with sprint generation.
+                                            # The orchestrated response will use the sprint result if the
+                                            # final STT text closely matches the early text (no surprise).
+                                            _spec_early_text = conversation_context.get('_early_stt_text')
+                                            _is_calibration_commit = conversation_context.get('prospect_info', {}).get('calibration_mode', False)
+                                            if (_spec_early_text
+                                                and not conversation_context.get('_early_sprint_done')
+                                                and EARLY_SPRINT_ENABLED
+                                                and not _is_calibration_commit):  # [2026-03-16] No sprint for calibration
+                                                # Fire parallel sprint — don't await, just kick it off
+                                                logger.info(f"[SPECULATION] Firing parallel sprint on early text during final STT: '{_spec_early_text[:50]}'")
+                                                asyncio.create_task(self._fire_early_sprint_pipeline(conversation_context))
+                                            
+                                            _stt_text = await aqi_stt_engine.finalize_and_clear(_vad_sid)
+                                            
+                                            # [2026-03-12 FIX] If on_stt_text dropped this transcript (mapping lookup
+                                            # failed despite our re-insertion — possible different self in callback),
+                                            # handle it directly here where we HAVE the conversation context.
+                                            if _vad_sid in self._stt_drops:
+                                                _dropped_text = self._stt_drops.pop(_vad_sid)
+                                                logger.warning(f"[VAD-RESCUE] Callback dropped '{_dropped_text[:60]}' — "
+                                                               f"handling directly via generate_response")
+                                                self._handle_rescued_stt(_dropped_text, _vad_sid, conversation_context, client_id)
                                     
                                     elif rms <= active_threshold and vad_state == 'silence':
                                         # Below speech threshold while in silence — reset consecutive counter
@@ -6904,8 +7633,61 @@ class AQIConversationRelayServer:
                 except Exception as e:
                     logger.warning(f"[REPLICATION] Failed to deregister: {e}")
             
+            # [2026-03-11] Clean up stream_sid_to_client_id mapping
+            _cleanup_sid = conversation_context.get('streamSid')
+            if _cleanup_sid and _cleanup_sid in self.stream_sid_to_client_id:
+                del self.stream_sid_to_client_id[_cleanup_sid]
+                logger.info(f"[CLEANUP] stream_sid_to_client_id removed: {_cleanup_sid} "
+                            f"(remaining_keys={len(self.stream_sid_to_client_id)})")
+            # [2026-03-12 FIX] Clean up drop tracker
+            if _cleanup_sid and _cleanup_sid in self._stt_drops:
+                del self._stt_drops[_cleanup_sid]
+            # [2026-03-13 FIX] Clean up eager rescue map
+            if _cleanup_sid and _cleanup_sid in self._stt_context_map:
+                del self._stt_context_map[_cleanup_sid]
+            # [2026-03-13 FIX] Clean up AMD hybrid override
+            _cleanup_call_sid = conversation_context.get('call_sid', '')
+            if _cleanup_call_sid and _cleanup_call_sid in self._eab_overrides:
+                del self._eab_overrides[_cleanup_call_sid]
             if client_id in self.active_conversations:
                 del self.active_conversations[client_id]
+                logger.info(f"[CLEANUP] active_conversations removed: {client_id} "
+                            f"(remaining={len(self.active_conversations)})")
+
+    def _greeting_cache_key(self, greeting: str, prosody_intent: str, hpl_state: Optional[HPLSessionState] = None) -> tuple:
+        """Generate a deterministic key for greeting cache.
+
+        The greeting cache must never serve audio synthesized with a different
+        voice/timing configuration (e.g. calibration mode, different TTS model/voice).
+        Including the voice/process fingerprint prevents the "two Alans" effect.
+        """
+        # Prefer explicit HPL state when available (calls should pass it in).
+        if hpl_state is not None:
+            return (
+                greeting,
+                prosody_intent,
+                hpl_state.voice_id,
+                self._tts_model,
+                bool(hpl_state.calibration_mode),
+            )
+        # Fallback to server-level voice config (legacy)
+        return (
+            greeting,
+            prosody_intent,
+            self._tts_voice,
+            self._tts_model,
+            bool(getattr(self, '_tts_calibration_mode', False)),
+        )
+
+    def _get_cached_greeting_audio(self, greeting: str, prosody_intent: str = "neutral", hpl_state: Optional[HPLSessionState] = None) -> bytes | None:
+        """Retrieve cached greeting audio if available.
+
+        This supports both the new voice-aware cache key and legacy string-only keys.
+        """
+        key = self._greeting_cache_key(greeting, prosody_intent, hpl_state)
+        if key in self.greeting_cache:
+            return self.greeting_cache[key]
+        return self.greeting_cache.get(greeting)
 
     async def _stream_audio_frames(self, websocket, raw_audio, stream_sid):
         """Stream pre-synthesized mulaw audio frames to Twilio.
@@ -6939,7 +7721,7 @@ class AQIConversationRelayServer:
             else:
                 await asyncio.sleep(0.012)
 
-    async def synthesize_and_stream_greeting(self, websocket, greeting, stream_sid):
+    async def synthesize_and_stream_greeting(self, websocket, greeting, stream_sid, prosody_intent="neutral", context=None):
         """Helper to Synthesize and Stream Greeting with Soft-Start Heartbeat"""
         # [ECHO FIX] Mark Twilio playback as pending — greeting is about to play
         # We'll get a mark event back from Twilio when it finishes
@@ -6948,25 +7730,55 @@ class AQIConversationRelayServer:
         # [TTS WEDGE] Synthesis & Streaming (Pure Streaming Mode)
         try:
              # [ZERO-LATENCY] Check startup pre-cache FIRST (saves 300-600ms)
-             if greeting in self.greeting_cache:
-                 raw_audio = self.greeting_cache[greeting]
+             # [2026-03-16 TONE FIX] Skip cache if prosody != neutral — cached audio
+             # was synthesized with neutral intent. Using it for calibration calls
+             # causes a jarring tone switch between greeting and live responses.
+             hpl_state = None
+             if context and isinstance(context.get('_hpl_state'), HPLSessionState):
+                 hpl_state = context.get('_hpl_state')
+
+             cache_key = self._greeting_cache_key(greeting, prosody_intent, hpl_state)
+             raw_audio = None
+             if prosody_intent == "neutral":
+                 raw_audio = self._get_cached_greeting_audio(greeting, prosody_intent, hpl_state)
+             if raw_audio:
                  logger.info(f"[TTS] GREETING CACHE HIT! {len(raw_audio)} bytes ready instantly.")
              else:
-                 # Named greeting (with prospect name) — synthesize live
-                 logger.info(f"[TTS] Starting Greeting Synthesis for: '{greeting[:40]}...'")
+                 # Named greeting or non-neutral prosody — synthesize live
+                 logger.info(f"[TTS] Starting Greeting Synthesis for: '{greeting[:40]}...' (prosody={prosody_intent})")
                  
                  if not self.tts_client:
                      logger.error("[TTS] No TTS client available.")
                      return
 
-                 # Synthesize in thread
+                 # Synthesize in thread with specified prosody
                  loop = asyncio.get_running_loop()
-                 raw_audio = await loop.run_in_executor(self.executor, self._openai_tts_sync, greeting)
+                 raw_audio = await loop.run_in_executor(self.executor, self._openai_tts_sync, greeting, prosody_intent)
+                 # Cache greeting for this exact voice/prosody configuration
+                 try:
+                     self.greeting_cache[cache_key] = raw_audio
+                 except Exception:
+                     # Cache is non-critical; ignore failures
+                     pass
              
              if not raw_audio:
                  logger.error("[TTS] No audio data from OpenAI TTS.")
                  return
-             
+
+             # [HPL 37] Lock voice fingerprint at greeting end
+             if hpl_state:
+                 current_fp = hpl_state.compute_voice_fingerprint()
+                 if not hpl_state.greeting_voice_locked:
+                     hpl_state.session_voice_fingerprint = current_fp
+                     hpl_state.greeting_voice_locked = True
+                     logger.info(f"[HPL] Greeting voice locked (fp={current_fp[:8]}...)")
+                 elif hpl_state.session_voice_fingerprint != current_fp:
+                     logger.warning(
+                         f"[HPL] Voice config drift detected (greeting_fp={hpl_state.session_voice_fingerprint[:8]}..., "
+                         f"current_fp={current_fp[:8]}...). Updating to current."
+                     )
+                     hpl_state.session_voice_fingerprint = current_fp
+
              logger.info(f"[TTS] Got {len(raw_audio)} bytes from OpenAI TTS. Streaming frames...")
              
              # Stream Chunks from buffered audio (non-blocking)
@@ -7033,6 +7845,12 @@ class AQIConversationRelayServer:
         if _instructor_flag:
             logger.info("[INSTRUCTOR MODE] Training call activated — governed learning session")
 
+        # [CALIBRATION MODE] Detect calibration flag from Stream parameters
+        _calibration_flag = parameters.get('calibration_mode', 'false').lower() == 'true'
+        _calibration_phase = int(parameters.get('calibration_phase', '1'))
+        if _calibration_flag:
+            logger.info(f"[CALIBRATION MODE] Phase {_calibration_phase} call activated — organ calibration session")
+
         # [DEMO MODE] Detect demo mode from Stream parameters (e.g. 'italian_aqi')
         _demo_mode = parameters.get('demo_mode', '').strip()
         if _demo_mode:
@@ -7041,12 +7859,35 @@ class AQIConversationRelayServer:
         context['prospect_info'] = {
             'name': parameters.get('prospect_name', 'there'),
             'company': parameters.get('business_name', ''),
-            'call_type': 'instructor_training' if _instructor_flag else ('demo_' + _demo_mode if _demo_mode else parameters.get('call_type', 'business_development')),
-            'strategy': 'instructor_mode' if _instructor_flag else ('demo_mode' if _demo_mode else parameters.get('strategy', 'cold_call')),
+            'call_type': 'instructor_training' if _instructor_flag else ('calibration_phase_' + str(_calibration_phase) if _calibration_flag else ('demo_' + _demo_mode if _demo_mode else parameters.get('call_type', 'business_development'))),
+            'strategy': 'instructor_mode' if _instructor_flag else ('calibration_mode' if _calibration_flag else ('demo_mode' if _demo_mode else parameters.get('strategy', 'cold_call'))),
             'call_direction': parameters.get('call_direction', 'outbound'),
             'instructor_mode': _instructor_flag,
+            'calibration_mode': _calibration_flag,
+            'calibration_phase': _calibration_phase,
             'demo_mode': _demo_mode
         }
+
+        # --- HPL Session State (HPL‑1.0) ---
+        # This is the canonical state for timing, voice fingerprinting, and
+        # interruption/backchannel behavior (Organs 36–40).
+        # Defaults draw from TIMING config where possible to keep behavior deterministic.
+        hpl_state = HPLSessionState(
+            calibration_mode=_calibration_flag,
+            voice_id=self._tts_voice,
+            voice_speed=TIMING.tts_default_speed,
+            voice_pitch=1.0,
+            timing_budget_ms=int(TIMING.trouble_threshold_ms * 0.6),
+            min_pause_ms=int(TIMING.silence_frame_duration_ms * 2),
+            max_pause_ms=int(TIMING.silence_frame_duration_ms * 10),
+        )
+        context['_hpl_state'] = hpl_state
+
+        # Configure backchannel style for this call (warm/neutral/concise)
+        _bc_style = parameters.get('backchannel_style')
+        if not _bc_style:
+            _bc_style = 'concise' if _calibration_flag else 'neutral'
+        self._configure_backchannel_style(hpl_state, _bc_style)
 
         # [ORGAN 29] Inbound Context — lookup caller for callback memory
         if INBOUND_CONTEXT_WIRED:
@@ -7139,6 +7980,144 @@ class AQIConversationRelayServer:
         # Start Dynamic Breath Routine (Don't reply immediately)
         asyncio.create_task(self.smart_greeting_routine(websocket, context))
         return None # No immediate response
+
+    def _hpl_start_timing_governor(self, context: dict):
+        """Start/refresh HPL timing governance for the current turn.
+
+        This is called when user speech ends (VAD commit) and the model is
+        about to start generating. It sets initial timing markers and starts
+        a governor loop that can emit backchannels when the model is late.
+        """
+        hpl_state = context.get('_hpl_state')
+        if not hpl_state:
+            return
+
+        # Mark that we are awaiting model output
+        hpl_state.pending_llm_stream = True
+        hpl_state.last_user_speech_end = time.monotonic()
+        # Reset model timing markers until first token arrives
+        hpl_state.last_model_token_time = 0.0
+
+        # Per-turn backchannel budgeting (frequency gating)
+        hpl_state.backchannel_turn_count += 1
+        if hpl_state.backchannel_emitted_count > hpl_state.backchannel_turn_count:
+            hpl_state.backchannel_emitted_count = 0
+
+        # Cancel any previous governor task for this call
+        prev_task = context.get('_hpl_governor_task')
+        if prev_task and not prev_task.done():
+            prev_task.cancel()
+
+        # Launch governor loop in the background (non-blocking)
+        try:
+            task = asyncio.create_task(self._hpl_timing_governor_loop(context))
+            context['_hpl_governor_task'] = task
+        except Exception:
+            # If task creation fails, we still proceed without governor.
+            pass
+
+    async def _hpl_timing_governor_loop(self, context: dict):
+        """Background loop that manages timing-based backchannels and fillers."""
+        hpl_state = context.get('_hpl_state')
+        if not hpl_state:
+            return
+
+        t0 = time.monotonic()
+        while True:
+            # Stop if the call ended or we got the first LLM token.
+            if context.get('stream_ended') or not hpl_state.pending_llm_stream:
+                return
+
+            # Check if we exceeded our timing budget
+            elapsed_ms = (time.monotonic() - t0) * 1000
+            if elapsed_ms > hpl_state.timing_budget_ms:
+                await self._hpl_maybe_emit_backchannel(context, reason='timing_budget')
+                t0 = time.monotonic()
+
+            await asyncio.sleep(0.05)
+
+    async def _hpl_maybe_emit_backchannel(self, context: dict, reason: str = None):
+        """Emit a backchannel utterance if HPL gating/pacing allows it."""
+        hpl_state = context.get('_hpl_state')
+        if not hpl_state or not hpl_state.backchannel_enabled:
+            return
+
+        # Gating: do not interrupt sprint/bridge/disclaimer/sensitive segments
+        if hpl_state.in_sprint or hpl_state.in_bridge or hpl_state.in_disclaimer:
+            return
+        if hpl_state.in_sensitive_segment:
+            return
+
+        now_ts = time.monotonic()
+
+        # Timing gating
+        if now_ts - hpl_state.backchannel_last_time < hpl_state.backchannel_profile.min_interval:
+            return
+
+        # Frequency gating (per-turn)
+        max_allowed = max(1, int(hpl_state.backchannel_turn_count * hpl_state.backchannel_profile.max_frequency))
+        if hpl_state.backchannel_emitted_count >= max_allowed:
+            return
+
+        phrase = hpl_state.backchannel_profile.pick_phrase()
+
+        # Fire and forget so we do not block the governor loop
+        asyncio.create_task(self._hpl_play_backchannel(context, phrase, reason=reason))
+
+        hpl_state.backchannel_last_time = now_ts
+        hpl_state.backchannel_emitted_count += 1
+        hpl_state.debug_trace.append(f"[HPL BACKCHANNEL] emitted '{phrase}' ({reason})")
+
+    async def _hpl_play_backchannel(self, context: dict, phrase: str, reason: str = None):
+        """Synthesize a backchannel phrase and stream it to the caller."""
+        websocket = context.get('websocket')
+        stream_sid = context.get('streamSid')
+        if not websocket or not stream_sid:
+            return
+
+        loop = asyncio.get_running_loop()
+        try:
+            audio_bytes = await loop.run_in_executor(
+                self.executor,
+                self._tts_sentence_sync,
+                phrase,
+                None,
+                None,
+                'neutral',
+                0,
+                1.0,
+                0.0,
+            )
+            if not audio_bytes:
+                return
+            await self.stream_audio_response(websocket, audio_bytes, stream_sid)
+        except Exception as _e:
+            logger.debug(f"[HPL BACKCHANNEL] Play failed: {_e}")
+
+    def _configure_backchannel_style(self, hpl_state: HPLSessionState, mode: str):
+        """Set backchannel style and pacing for the current call."""
+        if not hpl_state:
+            return
+        mode = (mode or 'neutral').lower()
+        if mode == 'warm':
+            hpl_state.backchannel_profile = BackchannelProfile(style='warm', min_interval=1.0, max_frequency=0.7)
+        elif mode == 'concise':
+            hpl_state.backchannel_profile = BackchannelProfile(style='concise', min_interval=1.5, max_frequency=0.3)
+        else:
+            hpl_state.backchannel_profile = BackchannelProfile(style='neutral', min_interval=1.2, max_frequency=0.5)
+
+    def _update_emotional_state(self, hpl_state: HPLSessionState, user_text: str):
+        """Update emotional gating flags based on simple keyword detection."""
+        if not hpl_state or not user_text:
+            return
+        lowered = user_text.lower()
+        sensitive_markers = [
+            "lost my job", "death", "passed away", "divorce",
+            "diagnosed", "cancer", "hospital", "emergency",
+        ]
+        if any(marker in lowered for marker in sensitive_markers):
+            hpl_state.in_sensitive_segment = True
+            hpl_state.debug_trace.append("[HPL EMOTION] Sensitive segment detected")
 
     @staticmethod
     def _is_person_name(name: str) -> bool:
@@ -7237,6 +8216,8 @@ class AQIConversationRelayServer:
         
         # [INSTRUCTOR MODE] Training greeting — different from sales greetings
         _is_instructor = context.get('prospect_info', {}).get('instructor_mode', False)
+        _is_calibration = context.get('prospect_info', {}).get('calibration_mode', False)
+        _calibration_phase = context.get('prospect_info', {}).get('calibration_phase', 1)
         _demo_mode = context.get('prospect_info', {}).get('demo_mode', '')
         if _demo_mode == 'italian_aqi':
             ITALIAN_GREETINGS = [
@@ -7244,6 +8225,23 @@ class AQIConversationRelayServer:
             ]
             REQUIRED_GREETING = random.choice(ITALIAN_GREETINGS)
             logger.info(f"[DEMO MODE] Using Italian AQI greeting")
+        elif _is_calibration:
+            # [CALIBRATION MODE] Use standard business greeting — tests real call behavior
+            _cal_name = prospect_name if has_name else 'there'
+            if _calibration_phase <= 2:
+                # Phase 1-2: stripped-down — use PRE-CACHED name-free greetings for zero lag
+                CALIBRATION_GREETINGS = [
+                    "Hi, this is Alan from Signature Card. Is the owner available?",
+                    "Hi, this is Alan from Signature Card Services. Is the owner available?",
+                ]
+            else:
+                # Phase 3+: full greeting with natural cadence
+                CALIBRATION_GREETINGS = [
+                    f"Hi {_cal_name}, this is Alan from Signature Card. I do free rate reviews for business owners — most are overpaying and don't realize it. Do you have a quick minute?",
+                    f"Hi {_cal_name}, this is Alan from Signature Card Services. Is the owner available?",
+                ]
+            REQUIRED_GREETING = random.choice(CALIBRATION_GREETINGS)
+            logger.info(f"[CALIBRATION MODE] Phase {_calibration_phase} greeting for: {_cal_name}")
         elif _is_instructor:
             # [2026-03-04 FIX] Greetings address the CALLER as the instructor,
             # not as a third-party trainee. Tim, the founder, calls Alan directly
@@ -7332,16 +8330,19 @@ class AQIConversationRelayServer:
             # Old openers averaged 18 words → 4-5s delivery → instant hangup.
             # New openers: fast, human, get to the ask in under 2 seconds.
             # 80% soft (no company name), 20% standard.
-            COLD_GREETINGS = [
-                # SOFT — short and human (80% of pool)
-                "Hey, this is Alan. Is the owner around?",
-                "Hi, this is Alan. Is the owner available?",
-                "Hey, it's Alan. Is the owner or manager there?",
-                "Hey, this is Alan calling. Is the owner in?",
-                # STANDARD — with company (20% of pool)
-                "Hi, this is Alan from Signature Card. Is the owner available?",
+            # [GOA-1.0] Converted to prefix/suffix pairs for segmented greeting.
+            COLD_GREETING_PAIRS = [
+                # PROFESSIONAL — company name always included, polished phrasing
+                ("Hi, this is Alan from Signature Card.", "Is the owner available?"),
+                ("Hello, this is Alan with Signature Card.", "May I speak with the owner?"),
+                ("Hi, this is Alan from Signature Card Services.", "Is the owner available?"),
+                ("Hello, this is Alan, Signature Card Services.", "Could I speak with the owner please?"),
+                ("Hi, this is Alan from Signature Card.", "Is the owner or manager available?"),
             ]
-            REQUIRED_GREETING = random.choice(COLD_GREETINGS)
+            _pair = random.choice(COLD_GREETING_PAIRS)
+            REQUIRED_GREETING = _pair[0] + " " + _pair[1]
+            context['_greeting_prefix'] = _pair[0]
+            context['_greeting_suffix'] = _pair[1]
         
         logger.info(f"[FIRST TURN] Call direction: {call_direction}")
 
@@ -7364,10 +8365,18 @@ class AQIConversationRelayServer:
         # immediately over their greeting. 600ms gives them room to finish
         # their pickup phrase before Alan starts talking.
         # On inbound calls: play ring tone for pickup feel.
+        # [2026-03-11 FIX] Instructor/demo calls skip pre-greeting silence entirely.
+        # Tim is expecting the call — dead silence on connect sounds broken.
+        # Also fixed frame count: was 90 (1800ms) but comment said 600ms.
         stream_sid = context.get('streamSid')
-        if stream_sid and call_direction == 'outbound':
-            _pre_greet_frames = 90  # 90 frames × 20ms = 1800ms of silence
-            logger.info(f"[PRE-GREETING] Outbound: sending {_pre_greet_frames} silence frames (1800ms) before greeting")
+        if stream_sid and call_direction == 'outbound' and not _is_instructor and not _demo_mode:
+            if _is_calibration:
+                _pre_greet_frames = 50  # [2026-03-16 CALIBRATION] 1000ms — give calibration callee time to say "Hello?"
+            else:
+                _pre_greet_frames = 15  # [2026-03-13 LATENCY FIX] 30→15 frames (600→300ms).
+                                        # 600ms silence after connect sounds like dead line to cold-called
+                                        # merchants. 300ms is enough for Twilio media stream setup.
+            logger.info(f"[PRE-GREETING] Outbound: sending {_pre_greet_frames} silence frames ({_pre_greet_frames * 20}ms) before greeting")
             for _ in range(_pre_greet_frames):
                 _silence_frame = generate_true_silence_frame()
                 _b64 = base64.b64encode(_silence_frame).decode('utf-8')
@@ -7419,106 +8428,230 @@ class AQIConversationRelayServer:
         logger.info(f"[VERIFICATION] Timestamp Greeting Start: {datetime.now().isoformat()}")
         
         try:
-             # [TWO-STAGE GREETING] If we have a prefix+suffix pair (named greeting),
+             # [TWO-STAGE GREETING + GOA-1.0] If we have a prefix+suffix pair,
              # stream the cached prefix instantly while TTS synthesizes the suffix.
-             # This gets first audio out in <100ms instead of waiting 300-600ms for full TTS.
+             # For GOA-eligible calls: insert a listen gate between segments.
              _prefix = context.pop('_greeting_prefix', None)
              _suffix = context.pop('_greeting_suffix', None)
              
-             if _prefix and _suffix and _prefix in self.greeting_cache:
+             # [GOA-1.0] Determine GOA eligibility — outbound sales calls only.
+             # Instructor, demo, and inbound calls use the legacy full-play path.
+             _goa_eligible = (
+                 _prefix and _suffix
+                 and call_direction == 'outbound'
+                 and not _is_instructor
+                 and not _demo_mode
+             )
+             _goa_human_spoke = False  # Tracks if human spoke during GOA listen gate
+             GREETING_FOR_HISTORY = REQUIRED_GREETING  # Default; overridden if GOA activates
+             
+             cache_key = self._greeting_cache_key(_prefix, "neutral")
+             if _prefix and _suffix and cache_key in self.greeting_cache:
                  logger.info(f"[TWO-STAGE] Prefix CACHE HIT: '{_prefix}' | Suffix live: '{_suffix}'")
-                 
+                  
                  # Start suffix TTS synthesis concurrently BEFORE streaming prefix
                  loop = asyncio.get_running_loop()
                  _suffix_future = loop.run_in_executor(self.executor, self._openai_tts_sync, _suffix)
-                 
+                  
+                 # [2026-03-13 MOVE-2] Pre-warm already fired at T-0 (stream start).
+                 # Skip duplicate pre-warm here — connection pool is already warm.
+                 if not context.get('_prewarm_fired_t0'):
+                     agent = context.get('agent_instance')
+                     if agent:
+                         asyncio.ensure_future(loop.run_in_executor(self.executor, self._prewarm_llm_connection, agent))
+                     asyncio.ensure_future(loop.run_in_executor(self.executor, self._prewarm_groq_connection))
+                  
                  # Stream the cached prefix immediately (zero latency)
-                 await self._stream_audio_frames(websocket, self.greeting_cache[_prefix], stream_sid)
+                 await self._stream_audio_frames(websocket, self.greeting_cache[cache_key], stream_sid)
                  
-                 # Now await the suffix TTS (likely already done — prefix playback took ~1.5s)
-                 _suffix_audio = await _suffix_future
-                 if _suffix_audio:
-                     await self._stream_audio_frames(websocket, _suffix_audio, stream_sid)
-                 
-                 # Send MARK event
-                 mark_payload = {"event": "mark", "streamSid": stream_sid, "mark": {"name": "turn_complete"}}
-                 if hasattr(websocket, 'send_text'):
-                     await websocket.send_text(json.dumps(mark_payload))
+                 if _goa_eligible:
+                     # ══════════════════════════════════════════════════════════
+                     # [GOA-1.0] GREETING LISTEN GATE
+                     # ══════════════════════════════════════════════════════════
+                     # Segment 1 ("Hey, this is Alan.") just played. Now we
+                     # LISTEN before playing segment 2. This is the critical
+                     # innovation: instead of broadcasting a monologue, Alan
+                     # pauses like a human would — giving the merchant a chance
+                     # to respond naturally ("Hello?", "Speaking", "Who's this?").
+                     #
+                     # If the human speaks → skip segment 2, enter dialogue
+                     #   immediately with First-Response Framework handling.
+                     # If silence → play segment 2 ("Is the owner around?")
+                     #   and continue normally.
+                     #
+                     # Timeline:
+                     #   t=0.0: Gate opens, echo cooldown active (0.3s for GOA)
+                     #   t=0.3: VAD activates, human speech detectable
+                     #   t=1.5: Gate closes (timeout), segment 2 plays
+                     # ══════════════════════════════════════════════════════════
+                     context['_goa_listen_event'] = asyncio.Event()
+                     context['_goa_listen_gate_active'] = True
+                     _fsm = context.get('_call_fsm')
+                     if _fsm:
+                         _fsm.handle_event(CallFlowEvent.SEG1_STREAMED)
+                     # Open ears: make _is_alan_talking = False immediately
+                     context['audio_playing'] = False
+                     context['twilio_playback_done'] = True
+                     context['responding_ended_at'] = time.time()
+                     context['vad_speech_frames'] = 0
+                     # DON'T clear STT buffer — we want to capture human speech
+                     
+                     # [2026-03-13 FIX] If human already spoke during prefix streaming,
+                     # immediately signal the gate. This handles the case where the human
+                     # says "Hello?" while segment 1 is playing — their speech was stored
+                     # in _pre_gate_human_speech by the FIRST_GREETING_PENDING guard.
+                     _pre_gate_speech = context.get('_pre_gate_human_speech')
+                     if _pre_gate_speech:
+                         context['_goa_listen_event'].set()
+                         logger.info(f"[GOA-1.0] Pre-gate speech detected: '{_pre_gate_speech}' — skipping segment 2 immediately")
+                     
+                     _gate_dur = TIMING.get('goa', 'listen_gate_duration_s', 1.5)
+                     logger.info(f"[GOA-1.0] Listen gate OPEN — waiting {_gate_dur}s for human speech")
+                     
+                     try:
+                         await asyncio.wait_for(
+                             context['_goa_listen_event'].wait(),
+                             timeout=_gate_dur
+                         )
+                         _goa_human_spoke = True
+                         logger.info("[GOA-1.0] 🎯 Human spoke during listen gate — SKIPPING segment 2")
+                     except asyncio.TimeoutError:
+                         logger.info("[GOA-1.0] Listen gate timeout — playing segment 2")
+                     
+                     # Clean up gate flags
+                     context['_goa_listen_gate_active'] = False
+                     context.pop('_goa_listen_event', None)
+                     
+                     if _goa_human_spoke:
+                         # Human spoke! Transition directly to DIALOGUE.
+                         # The human's speech is accumulating in the STT buffer and
+                         # will finalize normally through the silence-commit pipeline.
+                         # The First-Response Framework handles their first utterance.
+                         _fsm = context.get('_call_fsm')
+                         if _fsm:
+                             _fsm.handle_event(CallFlowEvent.GATE_SPEECH)
+                         # [GOA-1.0 FIX] GATE_SPEECH → DIALOGUE sets first_turn_complete=True
+                         # via _sync_context(). Override back to False so PHASE 1.7 first-turn
+                         # detection fires when the human's speech finalizes — this is what
+                         # triggers TURN-01 Fast Response (~50ms cached reply). Without this
+                         # override, the pipeline skips TURN-01 and goes straight to the full
+                         # LLM (2.4-5.9s dead air on the most critical moment of the call).
+                         context['first_turn_complete'] = False
+                         GREETING_FOR_HISTORY = _prefix  # Only segment 1 was spoken
+                         logger.info(f"[GOA-1.0] Entering DIALOGUE — greeting was: '{_prefix}' | first_turn_complete overridden to False for TURN-01")
+                         
+                         # [2026-03-13 FIX] If human spoke BEFORE the gate (during prefix),
+                         # their speech was already finalized by STT and dropped. The STT
+                         # buffer is empty — "speech will finalize normally" won't happen.
+                         # Re-inject the stored speech as a new process_user_input call.
+                         _pre_gate = context.pop('_pre_gate_human_speech', None)
+                         if _pre_gate:
+                             _gen = context.get('response_generation', 0) + 1
+                             context['response_generation'] = _gen
+                             logger.info(f"[GOA-1.0] Re-injecting pre-gate speech: '{_pre_gate}' as gen {_gen}")
+                             asyncio.create_task(
+                                 self.handle_user_speech(_pre_gate, context, websocket, _gen)
+                             )
+                     else:
+                         # Silence — play segment 2
+                         # Re-enter greeting-pending state for segment 2 audio
+                         context['audio_playing'] = True
+                         context['twilio_playback_done'] = False
+                         _suffix_audio = await _suffix_future
+                         if _suffix_audio:
+                             await self._stream_audio_frames(websocket, _suffix_audio, stream_sid)
+                         
+                         # Send MARK event
+                         mark_payload = {"event": "mark", "streamSid": stream_sid, "mark": {"name": "turn_complete"}}
+                         if hasattr(websocket, 'send_text'):
+                             await websocket.send_text(json.dumps(mark_payload))
+                         else:
+                             await websocket.send(json.dumps(mark_payload))
                  else:
-                     await websocket.send(json.dumps(mark_payload))
+                     # Non-GOA two-stage (instructor/demo with cached prefix)
+                     _suffix_audio = await _suffix_future
+                     if _suffix_audio:
+                         await self._stream_audio_frames(websocket, _suffix_audio, stream_sid)
+                     
+                     # Send MARK event
+                     mark_payload = {"event": "mark", "streamSid": stream_sid, "mark": {"name": "turn_complete"}}
+                     if hasattr(websocket, 'send_text'):
+                         await websocket.send_text(json.dumps(mark_payload))
+                     else:
+                         await websocket.send(json.dumps(mark_payload))
              else:
                  # Standard path: full greeting (cached or live)
-                 await self.synthesize_and_stream_greeting(websocket, REQUIRED_GREETING, stream_sid)
+                 # [2026-03-16 FIX-2] Calibration uses NEUTRAL cached greeting.
+                 # casual_rapport was causing multi-tone (warm greeting → neutral conversation).
+                 # Locking both greeting + conversation to neutral = one consistent voice.
+                 await self.synthesize_and_stream_greeting(websocket, REQUIRED_GREETING, stream_sid, context=context)
              logger.info("[FIRST TURN] Greeting Stream Initiated Successfully.")
              logger.info(f"[VERIFICATION] Timestamp Greeting Stream Active: {datetime.now().isoformat()}")
              
              # 5. SEED CONVERSATION HISTORY WITH GREETING
              # Critical: Without this, the LLM has no idea Alan already spoke.
              # It would generate a second greeting/intro on the first user turn.
+             # [GOA-1.0] If human spoke during gate, only segment 1 is in history.
              context['messages'].append({
                  'timestamp': datetime.now(),
                  'user': '',
-                 'alan': REQUIRED_GREETING,
+                 'alan': GREETING_FOR_HISTORY,
                  'sentiment': 'neutral',
                  'interest': 0
              })
              # Also persist to the agent's conversation history for LLM context
              agent = context.get('agent_instance')
              if agent and hasattr(agent, 'conversation_history'):
-                 agent.conversation_history.add_message('Alan', REQUIRED_GREETING)
+                 agent.conversation_history.add_message('Alan', GREETING_FOR_HISTORY)
              
              # [ORGAN] Hook 2 — Greeting Sent
              if CALL_MONITOR_WIRED:
-                 monitor_greeting_sent(context.get('call_sid', ''), REQUIRED_GREETING)
+                 monitor_greeting_sent(context.get('call_sid', ''), GREETING_FOR_HISTORY)
              
              # [CAPTURE] Record greeting
              if CALL_CAPTURE_WIRED:
-                 _cdc_greeting(context.get('call_sid', ''), REQUIRED_GREETING)
+                 _cdc_greeting(context.get('call_sid', ''), GREETING_FOR_HISTORY)
              
-             # 6. ENTER LISTENING STATE — IMMEDIATELY after greeting frames sent.
-             # [2026-03-05 FIX] Moved BEFORE LLM pre-warm. Previously, the pre-warm
-             # blocked this coroutine for 19+ seconds, keeping state as
-             # FIRST_GREETING_PENDING. During that time _is_alan_talking=True,
-             # STT was not fed, and Tim's speech was lost. Now we transition to
-             # LISTENING_FOR_CALLER first so the media handler starts feeding STT
-             # within the next frame (~20ms), then pre-warm runs concurrently.
-             # [PHASE 2] FSM: GREETING_PENDING → GREETING_PLAYED
-             _fsm = context.get('_call_fsm')
-             if _fsm:
-                 _fsm.handle_event(CallFlowEvent.GREETING_STREAMED)
+             # 6. ENTER LISTENING STATE
+             if _goa_human_spoke:
+                 # [GOA-1.0] Already in DIALOGUE via GATE_SPEECH event.
+                 # Human's speech is in STT buffer — DO NOT clear it.
+                 # Audio flags already set when gate opened — DO NOT reset.
+                 # The silence-commit pipeline will finalize the human's speech
+                 # and route it to the First-Response Framework / FAST_PATH.
+                 logger.info(f"[GOA-1.0] State: DIALOGUE | Human speech in STT buffer | "
+                             f"conversation_state={context.get('conversation_state')}")
              else:
-                 context['conversation_state'] = 'LISTENING_FOR_CALLER'
-             context['responding_ended_at'] = time.time()  # Echo cooldown reference
-             context['vad_speech_frames'] = 0  # Reset speech detection
+                 # Normal flow: transition to LISTENING_FOR_CALLER
+                 # [PHASE 2] FSM: GREETING_PENDING/GREETING_LISTEN_GATE → GREETING_PLAYED
+                 _fsm = context.get('_call_fsm')
+                 if _fsm:
+                     _fsm.handle_event(CallFlowEvent.GREETING_STREAMED)
+                 else:
+                     context['conversation_state'] = 'LISTENING_FOR_CALLER'
+                 context['responding_ended_at'] = time.time()  # Echo cooldown reference
+                 context['vad_speech_frames'] = 0  # Reset speech detection
+                 
+                 # [2026-03-04 FIX] Explicitly set audio flags to guarantee _is_alan_talking=False.
+                 context['audio_playing'] = False
+                 context['twilio_playback_done'] = True
+                 
+                 # Clear STT buffer of any echo collected during greeting
+                 if stream_sid:
+                     aqi_stt_engine.clear_buffer(stream_sid)
+                 
+                 logger.info(f"[FIRST TURN] Transitioned to LISTENING_FOR_CALLER | "
+                             f"audio_playing={context.get('audio_playing')}, "
+                             f"twilio_playback_done={context.get('twilio_playback_done')}, "
+                             f"conversation_state={context.get('conversation_state')}")
              
-             # [2026-03-04 FIX] Explicitly set audio flags to guarantee _is_alan_talking=False.
-             # Without this, _is_alan_talking could remain True if audio_playing or
-             # twilio_playback_done were set by a racing code path, causing all of
-             # Tim's speech to be treated as barge-in (buffer cleared every frame).
-             context['audio_playing'] = False
-             context['twilio_playback_done'] = True
-             
-             # Clear STT buffer of any echo collected during greeting
-             if stream_sid:
-                 aqi_stt_engine.clear_buffer(stream_sid)
-             
-             logger.info(f"[FIRST TURN] Transitioned to LISTENING_FOR_CALLER | "
-                         f"audio_playing={context.get('audio_playing')}, "
-                         f"twilio_playback_done={context.get('twilio_playback_done')}, "
-                         f"conversation_state={context.get('conversation_state')}")
-             
-             # [LAG FIX] Pre-warm LLM connection AFTER state transition.
-             # Fire as background task so it doesn't block the listening state.
-             # The greeting takes ~3-4 seconds to play on Twilio's end. During
-             # that window we warm the TCP connection + OpenAI prompt cache.
-             # This makes the FIRST real LLM call much faster (3000ms → 500ms TTFT).
-             # [2026-03-05 FIX] Changed from blocking `await` to background task.
-             # The pre-warm result isn't used — it just warms the connection pool.
-             if agent:
-                 loop = asyncio.get_running_loop()
-                 # [2026-03-05 FIX] run_in_executor returns a Future directly — no wrap needed.
-                 # The previous asyncio.wrap_future() was causing "Critical Failure" log spam.
-                 asyncio.ensure_future(loop.run_in_executor(self.executor, self._prewarm_llm_connection, agent))
+             # [2026-03-13 MOVE-2] Pre-warm already fired at T-0 (stream start).
+             # Only fire again if T-0 pre-warm was missed (shouldn't happen normally).
+             if not context.get('_prewarm_fired_t0'):
+                 if agent and not _goa_eligible:
+                     loop = asyncio.get_running_loop()
+                     asyncio.ensure_future(loop.run_in_executor(self.executor, self._prewarm_llm_connection, agent))
+                     asyncio.ensure_future(loop.run_in_executor(self.executor, self._prewarm_groq_connection))
              logger.info(f"[FIRST TURN] Greeting seeded + LLM pre-warm launched (non-blocking)")
              
         except Exception as e:
@@ -7580,6 +8713,37 @@ class AQIConversationRelayServer:
                     raise ce
         except Exception as e:
             logger.warning(f"[PRE-WARM LLM] Failed (non-critical): {e}")
+
+    def _prewarm_groq_connection(self):
+        """[2026-03-13 FIX] Pre-warm Groq LPU connection during greeting window.
+        
+        Sprint LLM now uses Groq, not OpenAI. The OpenAI pre-warm only helps the
+        full-response LLM path. Pre-warming Groq's TCP+TLS connection during the
+        greeting window saves ~100-200ms on the FIRST sprint call, shaving off the
+        TLS handshake + connection setup overhead that contributes to the ~400ms
+        live-vs-bench TTFT gap.
+        """
+        try:
+            groq_key = os.environ.get('GROQ_API_KEY', '')
+            if not groq_key:
+                return
+            url = "https://api.groq.com/openai/v1/chat/completions"
+            payload = {
+                "model": "llama-3.3-70b-versatile",
+                "messages": [{"role": "user", "content": "hi"}],
+                "max_tokens": 1,
+                "temperature": 0,
+            }
+            headers = {
+                "Authorization": f"Bearer {groq_key}",
+                "Content-Type": "application/json",
+            }
+            warm_start = time.time()
+            r = self._llm_session.post(url, json=payload, headers=headers, timeout=(3, 5))
+            warm_ms = 1000 * (time.time() - warm_start)
+            logger.info(f"[PRE-WARM GROQ] Sprint LLM connection warmed in {warm_ms:.0f}ms (status {r.status_code})")
+        except Exception as e:
+            logger.debug(f"[PRE-WARM GROQ] Failed (non-critical): {e}")
 
     # =============================================================================
     # [VERSION R+] ORCHESTRATED PIPELINE — "The Symphony"
@@ -7644,18 +8808,20 @@ class AQIConversationRelayServer:
             loop = asyncio.get_running_loop()
 
             def _early_sprint_llm():
-                """Run sprint LLM and return first sentence."""
+                """Run sprint LLM via Groq LPU for ~100ms TTFT (was ~1000ms via OpenAI)."""
                 try:
-                    url = "https://api.openai.com/v1/chat/completions"
+                    # [2026-03-13 SIMPLIFICATION] Groq LPU: ~100-200ms TTFT vs ~1000ms OpenAI.
+                    # Same OpenAI-compatible API. GROQ_API_KEY already configured for STT.
+                    url = "https://api.groq.com/openai/v1/chat/completions"
                     body = {
-                        "model": "gpt-4o-mini",
+                        "model": "llama-3.3-70b-versatile",
                         "messages": sprint_msgs,
                         "max_tokens": SPRINT_MAX_TOKENS,
                         "temperature": 0.5,
                         "stream": True,
                     }
                     headers = {
-                        "Authorization": f"Bearer {os.environ.get('OPENAI_API_KEY', '')}",
+                        "Authorization": f"Bearer {os.environ.get('GROQ_API_KEY', '')}",
                         "Content-Type": "application/json",
                     }
                     session = self._llm_session
@@ -7708,11 +8874,13 @@ class AQIConversationRelayServer:
                 return
 
             # 6. TTS synthesis — check sprint cache first, then synthesize
-            _cached = self.sprint_tts_cache.get(sprint_text) or self.greeting_cache.get(sprint_text)
+            _cached = self.sprint_tts_cache.get(sprint_text) or self._get_cached_greeting_audio(sprint_text, hpl_state=context.get('_hpl_state'))
             if _cached:
                 sprint_audio = _cached
+                context['_early_sprint_cache_hit'] = True
                 logger.info(f"[EARLY-SPRINT] TTS cache hit: '{sprint_text[:40]}' ({len(sprint_audio)} bytes)")
             else:
+                context['_early_sprint_cache_hit'] = False
                 _es_tts_t0 = time.monotonic()
                 sprint_audio = await loop.run_in_executor(
                     self.executor,
@@ -7771,22 +8939,39 @@ class AQIConversationRelayServer:
         is_first_response = len(conv_messages) <= 1  # Only greeting in history
         
         # [2026-03-04] INSTRUCTOR MODE gets its own sprint prompt — training, not sales
+        # ── CROSS-TIER CONTRACT ────────────────────────────────────────────────────
+        # This sprint prompt and INSTRUCTOR_MODE_PROMPT (agent_alan_business_ai.py ~line 5235)
+        # must agree on the following rules. If you change one, update the other.
+        #
+        #   acknowledgment_rule : REQUIRED — brief one-word opener ("Right.", "Yeah.", "Got it.")
+        #   sentence_cap        : 1 sentence (sprint IS the acknowledgment; LLM provides 1 follow-on)
+        #   tone                : human, listen-first, no cold substance-first openers
+        #
+        # Session 34 root cause: sprint said "Do NOT acknowledge" while INSTRUCTOR_MODE_PROMPT
+        # said "acknowledgment is NATURAL." Sprint fires first — it won. Conflict caused
+        # over_response(17x) and no_acknowledgment flags on call CA44922a.
+        # ── END CONTRACT ──────────────────────────────────────────────────────────
         if _is_instructor:
             system = (
                 "You are Alan, a sales rep in a TRAINING session on a live phone call. "
                 "The person on this call is your instructor — they're coaching you. "
                 "LISTEN to what they say. RESPOND to their actual words. "
-                "Keep your response to 1-2 short sentences. Be natural and conversational. "
-                "If they gave feedback → acknowledge it and try again or ask a follow-up. "
-                "If they're role-playing a merchant → stay in character and respond naturally. "
-                "If they asked you a question → answer it directly. "
-                "If they said something casual → match their energy. Be a real person. "
+                "Keep your response to 1 SHORT sentence — then STOP and WAIT. "
+                "ONE response only. Do NOT ask multiple questions. Do NOT list topics. Do NOT explain your approach. "
+                "Say ONE thing. Then be silent. Let them respond. "
+                "If they gave feedback → acknowledge it in one sentence. "
+                "If they're role-playing a merchant → respond as Alan would to that one thing they said. "
+                "If they asked you a question → answer it in one sentence. "
+                "If they said something casual → one short reply, then stop. "
                 "SPEECH STYLE — SOUND HUMAN: Talk like a real guy on the phone — fluid, natural, unscripted. "
                 "Use contractions always: 'I'm', 'we're', 'that's', 'wouldn't', 'gonna', 'kinda'. "
                 "Vary your sentence length — mix short punchy lines with longer flowing ones. "
-                "Start sentences different ways — don't always use subject-verb-object. Sometimes start mid-thought: 'Thing is...' or 'Way I see it...' "
+                "Start sentences different ways — don't always use subject-verb-object. Vary your openers naturally. "
+                "NEVER use the same opening phrase twice in a conversation. "
                 "NEVER sound like you're reading. Sound like you're THINKING and TALKING at the same time. "
-                "Do NOT start with acknowledgment filler like 'Got it', 'I understand', 'Yeah', 'Right', 'Fair enough', 'I appreciate that'. Dive straight into substance. "
+                "LISTEN FIRST: Start with a brief ONE-word acknowledgment that shows you heard them — 'Right.', 'Yeah.', 'Got it.', 'Fair.', 'Okay.'. "
+                "Then ONE sentence responding to EXACTLY what they just said. NOTHING MORE. "
+                "Do NOT ask multiple questions in one turn. Do NOT list what you plan to say. "
                 "WAIT for them to FINISH their thought before you respond. Don't jump in mid-sentence. "
                 "NEVER say goodbye or end the call. "
                 "NEVER pitch payment processing unless you're in an active role-play. "
@@ -7826,7 +9011,7 @@ class AQIConversationRelayServer:
                 "Sound like a real guy talking — fluid, natural, unscripted. Use contractions: 'I'm', 'we're', 'that's', 'gonna', 'kinda'. "
                 "LISTEN to what they just said. Respond to THEIR words, not your script. "
                 "1 sentence. MAX 2 if they asked a real question. This is a PHONE CALL — brevity wins. "
-                "Vary how you start sentences — don't always use the same structure. Sometimes start mid-thought: 'Thing is...' or 'Way I see it...' Mix short and long. Sound like you're thinking out loud, not reading. "
+                "Vary how you start sentences — don't always use the same structure. Mix short and long. Never repeat the same opening word or phrase. Sound like you're thinking out loud, not reading. "
                 "PROFESSIONAL SPEECH: Skip the opener. Dive straight into substance — that's what a veteran does. Do NOT start with 'Got it', 'Right', 'Yeah', 'Fair enough', 'I understand', 'I appreciate that' — those are filler. A 15-year pro just says the next thing that matters. "
                 "NEVER repeat what you already said. NEVER say 'let me repeat that.' Check the conversation history. "
                 "If they gave information → use it to ask a sharper follow-up. "
@@ -7908,6 +9093,12 @@ class AQIConversationRelayServer:
         if not stream_sid or not websocket:
             logger.error("[ORCHESTRATED] No stream_sid or websocket. Cannot proceed.")
             return None
+
+        # [2026-03-16 FIX-3] Set calibration flag for TTS post-processing bypass.
+        # Streaming TTS (sentence 1) doesn't apply breath/signature/onset effects,
+        # but blocking TTS (prefetched sentences) does — causing multi-tone.
+        # This flag makes _openai_tts_sync skip those effects for consistent voice.
+        self._tts_calibration_mode = context.get('prospect_info', {}).get('calibration_mode', False)
 
         # [ADAPTIVE LAYER] Compute register directive for LLM prompt injection
         # before build_llm_prompt so it can shape WHAT Alan says (formality/technicality)
@@ -7995,8 +9186,46 @@ class AQIConversationRelayServer:
         if _skip_organ_injections:
             logger.info(f"[SPEED] Skipping organ injections on turn {_early_turn_count} (FAST_PATH ~620 tokens)")
 
+        # =================================================================
+        # [2026-03-16 CALIBRATION MODE] Phase-based organ gating
+        # =================================================================
+        # Phase 1: ALL organs stripped — raw conversational baseline
+        # Phase 2: Re-enable one organ at a time per CALIBRATION_PHASE_2_ORGANS
+        # Phase 3+: All organs active (vocabulary/pacing/greeting focus)
+        # =================================================================
+        _is_calibration_call = context.get('prospect_info', {}).get('calibration_mode', False)
+        _calibration_phase = context.get('prospect_info', {}).get('calibration_phase', 1)
+
+        # Organs that calibration Phase 2 re-enables in order:
+        # 1=OVERLAP_DETECTOR_SOFT, 2=ASR_CONFIDENCE_GATE, 3=PROSODY_BUDGET
+        # 4=MISSION_INTENT_DETECTOR, 5=OBJECTION_TREE_FAST, 6=COMPLIANCE_LIGHT
+        _CALIBRATION_PHASE_2_ORGANS = {
+            1: [],  # Phase 2 sub-step 1: overlap detector only (handled at VAD level)
+            2: [],  # Phase 2 sub-step 2: ASR confidence gate (handled at STT level)
+            3: [30],  # Phase 2 sub-step 3: Prosody budget → Organ 30
+            4: [],  # Phase 2 sub-step 4: Mission intent → handled by Neural Flow Cortex
+            5: [31],  # Phase 2 sub-step 5: Objection tree → Organ 31
+            6: [],  # Phase 2 sub-step 6: Compliance light → soft guardrails
+        }
+
+        _calibration_skip_organs = False
+        _calibration_allowed_organs = set()
+        if _is_calibration_call:
+            if _calibration_phase == 1:
+                _calibration_skip_organs = True
+                logger.info(f"[CALIBRATION] Phase 1 — ALL organ injections STRIPPED")
+            elif _calibration_phase == 2:
+                _calibration_skip_organs = True
+                # Build allowed set from all sub-steps up to current
+                _cal_sub = context.get('prospect_info', {}).get('calibration_sub_step', 6)
+                for _step in range(1, _cal_sub + 1):
+                    _calibration_allowed_organs.update(_CALIBRATION_PHASE_2_ORGANS.get(_step, []))
+                logger.info(f"[CALIBRATION] Phase 2 — Allowed organs: {_calibration_allowed_organs}")
+            else:
+                logger.info(f"[CALIBRATION] Phase {_calibration_phase} — Full organ pipeline ACTIVE")
+
         _retrieval_ctx = context.get('_retrieval_context')
-        if _retrieval_ctx and RETRIEVAL_CORTEX_WIRED and not _is_instructor_call and not _skip_organ_injections:
+        if _retrieval_ctx and RETRIEVAL_CORTEX_WIRED and not _is_instructor_call and not _skip_organ_injections and not (_calibration_skip_organs and 24 not in _calibration_allowed_organs):
             if messages and messages[0].get('role') == 'system':
                 _confidential_notice = (
                     "⚠️ CONFIDENTIALITY: The knowledge below includes proprietary North/PaymentsHub business intelligence. "
@@ -8008,14 +9237,14 @@ class AQIConversationRelayServer:
         
         # [ORGAN 34] Inject Competitive Intel context into LLM system message
         _competitor_ctx = context.get('_competitor_context')
-        if _competitor_ctx and COMPETITIVE_INTEL_WIRED and not _is_instructor_call and not _skip_organ_injections:
+        if _competitor_ctx and COMPETITIVE_INTEL_WIRED and not _is_instructor_call and not _skip_organ_injections and not (_calibration_skip_organs and 34 not in _calibration_allowed_organs):
             if messages and messages[0].get('role') == 'system':
                 messages[0]['content'] += f"\n\n[COMPETITIVE INTEL — §4.9 POSITIONING]\n{_competitor_ctx}"
             logger.info(f"[ORGAN 34] Competitor context injected into LLM ({context.get('_detected_competitor')})")
         
         # [ORGAN 31] Inject objection learning context into LLM system message
         _obj_events = context.get('_objection_events', [])
-        if _obj_events and OBJECTION_LEARNING_WIRED and not _is_instructor_call and not _skip_organ_injections:
+        if _obj_events and OBJECTION_LEARNING_WIRED and not _is_instructor_call and not _skip_organ_injections and not (_calibration_skip_organs and 31 not in _calibration_allowed_organs):
             _recent_objs = _obj_events[-3:]  # last 1-3 objections this call
             _obj_ctx_parts = []
             for _oe in _recent_objs:
@@ -8041,7 +9270,7 @@ class AQIConversationRelayServer:
             logger.info(f"[ORGAN 31] Objection context injected into LLM ({len(_recent_objs)} events)")
 
         # [ORGAN 32] Inject call summary / deal readiness context into LLM system message
-        if SUMMARIZATION_WIRED and context.get('_summarization_organ') and context.get('_summary_state') == 'collecting' and not _is_instructor_call and not _skip_organ_injections:
+        if SUMMARIZATION_WIRED and context.get('_summarization_organ') and context.get('_summary_state') == 'collecting' and not _is_instructor_call and not _skip_organ_injections and not (_calibration_skip_organs and 32 not in _calibration_allowed_organs):
             try:
                 _sum_organ_llm = context['_summarization_organ']
                 _sum_ctx_parts = []
@@ -8075,7 +9304,7 @@ class AQIConversationRelayServer:
                 logger.debug(f"[ORGAN 32] LLM injection failed (non-fatal): {_sum_llm_err}")
 
         # [ORGAN 33] Inject CRM pipeline context into LLM system message
-        if CRM_INTEGRATION_WIRED and context.get('_crm_organ') and not _is_instructor_call and not _skip_organ_injections:
+        if CRM_INTEGRATION_WIRED and context.get('_crm_organ') and not _is_instructor_call and not _skip_organ_injections and not (_calibration_skip_organs and 33 not in _calibration_allowed_organs):
             try:
                 _crm_ctx_parts = []
                 _crm_push_st = context.get('_crm_push_state', 'idle')
@@ -8105,7 +9334,7 @@ class AQIConversationRelayServer:
                 logger.debug(f"[ORGAN 33] LLM injection failed (non-fatal): {_crm_llm_err}")
 
         # [ORGAN 35] Inject IQ Budget cognitive state into LLM system message
-        if IQ_BUDGET_WIRED and context.get('_iq_budget_organ') and not _is_instructor_call and not _skip_organ_injections:
+        if IQ_BUDGET_WIRED and context.get('_iq_budget_organ') and not _is_instructor_call and not _skip_organ_injections and not (_calibration_skip_organs and 35 not in _calibration_allowed_organs):
             try:
                 _iq_ctx_parts = []
                 _iq_organ_llm = context['_iq_budget_organ']
@@ -8342,6 +9571,11 @@ class AQIConversationRelayServer:
         # [ORGAN 7] Detect prosody intent for this turn
         # This determines HOW Alan sounds — instructions, speed, and inter-sentence pause
         prosody_intent = detect_prosody_intent(context, analysis)
+        # [2026-03-16 FIX-2] Calibration: lock prosody to neutral for consistent single-voice.
+        # Prevents tone drift from Organ 30, PE, adaptive layer, and per-sentence refinement.
+        if _is_calibration_call:
+            prosody_intent = 'neutral'
+            logger.info(f"[CALIBRATION] Prosody locked to 'neutral' (single-voice mode)")
         # [ORGAN 30] Apply prosody mode override if Organ 30 detected strong emotion
         _prosody_override = context.get('_prosody_mode_override')
         if _prosody_override and PROSODY_ANALYSIS_WIRED:
@@ -8452,6 +9686,21 @@ class AQIConversationRelayServer:
                 except Exception as _pe_err:
                     logger.debug(f"[PE×PROSODY] Bias application failed (non-fatal): {_pe_err}")
         
+        # [2026-03-16 FIX-2] Calibration FINAL lock: force neutral AFTER all override systems.
+        # This prevents Organ 30, PE, and Adaptive Layer from drifting the tone.
+        # Placed here (after all bias chains) so the lock is absolute.
+        if _is_calibration_call:
+            if prosody_intent != 'neutral':
+                logger.info(f"[CALIBRATION] Prosody override {prosody_intent} → neutral (single-voice lock)")
+                prosody_intent = 'neutral'
+                prosody_silence = PROSODY_SILENCE_FRAMES.get('neutral', SENTENCE_SILENCE_FRAMES)
+                prosody_speed = PROSODY_SPEED.get('neutral', TIMING.tts_default_speed)
+            # [2026-03-16 FIX-4] Also reset sig_speed_bias — Adaptive×Prosody pace
+            # was modifying it (e.g. 0.920) causing streaming TTS to use different
+            # speed than blocking TTS (0.92 vs 1.0) → audible tone shift.
+            sig_speed_bias = 1.0
+            sig_breath_bias = 0.0
+        
         # Persist user message
         if prompt_user_text:
             agent.conversation_history.add_message("User", prompt_user_text)
@@ -8463,7 +9712,8 @@ class AQIConversationRelayServer:
 
         # [SPECULATIVE DECODING] Sprint queue + prompt (built only if feature enabled)
         sprint_q = thread_queue.Queue()
-        sprint_messages = self._build_sprint_prompt(user_text, context) if SPECULATIVE_DECODING_ENABLED else None
+        _is_calibration_sprint_normal = context.get('prospect_info', {}).get('calibration_mode', False)
+        sprint_messages = self._build_sprint_prompt(user_text, context) if (SPECULATIVE_DECODING_ENABLED and not _is_calibration_sprint_normal) else None
 
         # [LAG FIX] Capture session for closure — connection reuse across calls
         llm_session = self._llm_session
@@ -8490,26 +9740,36 @@ class AQIConversationRelayServer:
             # "I get that, " — merchant heard weird audio, telephony health killed the call.
             # Fix: First 2 turns use 60 tokens (enough for 1-2 sentences) for speed.
             _conv_turn_count = len(context.get('messages', []))
-            # [2026-03-05] LATENCY FIX: ALL turns capped at 2 sentences max.
-            # Measured: 3 sentences = 3000ms+ TTS, 2 sentences = 1500ms TTS.
-            # Every extra sentence adds ~1s of lag the merchant hears.
-            # Token caps also tightened: 80→60 for turns 5-7, 120→80 for turns 8+.
-            # Gong.io: 77% more speaker switches = shorter turns = success.
-            if _conv_turn_count >= 8:
+            # [2026-04-03] Sentence cap: 2 for all live call turns. Sprint adds 1 opener,
+            # so effective output is sprint + 1 follow-on = 2 distinct statements per turn.
+            # This preserves conversational back-and-forth rhythm — Alan speaks, then waits.
+            # Gong.io data: 77% more speaker switches = shorter turns = higher close rate.
+            # Calibration mode relaxed to 4 for full-response quality assessment.
+            _is_calibration_llm_cap = context.get('prospect_info', {}).get('calibration_mode', False)
+            _is_instructor_llm_cap = context.get('prospect_info', {}).get('instructor_mode', False)
+            if _is_calibration_llm_cap:
+                _adaptive_max_tokens = 150
+                _adaptive_max_sentences = 4
+            elif _is_instructor_llm_cap:
+                _adaptive_max_tokens = 80
+                _adaptive_max_sentences = 1   # [2026-04-03] Sprint=1 + LLM=1 = 2 total statements max.
+                                              # Alan was generating 4 sentences per turn (over_response 17x).
+                                              # 1 LLM sentence enforces: listen → acknowledge (sprint) → one point → stop.
+            elif _conv_turn_count >= 8:
                 _adaptive_max_tokens = 80
                 _adaptive_max_sentences = 2
             elif _conv_turn_count >= 5:
                 _adaptive_max_tokens = 80
                 _adaptive_max_sentences = 2
             elif _conv_turn_count >= 2:
-                _adaptive_max_tokens = TIMING.relay_max_tokens  # 80 from timing_config.json
+                _adaptive_max_tokens = TIMING.relay_max_tokens
                 _adaptive_max_sentences = 2
             else:
                 _adaptive_max_tokens = 60  # Ultra-fast first impression
                 _adaptive_max_sentences = 2
             
             payload = {
-                "model": "gpt-4o-mini",
+                "model": "gpt-4o",  # [2026-04-03] Upgraded from gpt-4o-mini. Sprint stays mini (speed). Full relay uses 4o for conversational quality.
                 "messages": messages,
                 "temperature": TIMING.temperature,  # [TIMING CONFIG]
                 "max_tokens": _adaptive_max_tokens,  # [LONG CONV] Adaptive — 45 early, 80 deep
@@ -8602,6 +9862,12 @@ class AQIConversationRelayServer:
                                     _telemetry['ttft_ms'] = ttft_ms
                                     # [INSTRUMENT] LLM first token relative to vad_end
                                     _telemetry['llm_first_token_ms'] = round(1000 * (time.monotonic() - _mono_base), 1)
+
+                                # [HPL 36] Mark first model token arrival
+                                hpl_state = context.get('_hpl_state')
+                                if hpl_state:
+                                    hpl_state.pending_llm_stream = False
+                                    hpl_state.last_model_token_time = time.monotonic()
                                 
                                 token_buffer += delta
                                 
@@ -8724,26 +9990,27 @@ class AQIConversationRelayServer:
 
         # [SPECULATIVE DECODING] Sprint LLM stream — tiny prompt, fast first clause
         def _sprint_sentence_stream():
-            """Sprint LLM call: minimal prompt, max_tokens=30, one opening clause.
+            """Sprint LLM call via Groq LPU: ~100ms TTFT vs ~1000ms OpenAI.
             
-            Runs concurrently with _llm_sentence_stream. The shorter prompt
-            (~200 tokens vs ~3000+) means OpenAI returns the first token faster.
-            We only need one clause from this — the opening words that buy time
-            while the full response generates.
+            Runs concurrently with _llm_sentence_stream. Groq's LPU hardware
+            delivers first tokens in ~100-200ms. We only need one clause from
+            this — the opening words that buy time while full response generates.
             """
             if not sprint_messages:
                 sprint_q.put(None)
                 return
             
-            url = "https://api.openai.com/v1/chat/completions"
+            # [2026-03-13 SIMPLIFICATION] Sprint → Groq LPU. Saves ~800ms per turn.
+            url = "https://api.groq.com/openai/v1/chat/completions"
             payload = {
-                "model": "gpt-4o-mini",
+                "model": "llama-3.3-70b-versatile",
                 "messages": sprint_messages,
                 "temperature": TIMING.temperature,
                 "max_tokens": SPRINT_MAX_TOKENS,
                 "stream": True
             }
-            headers = {"Authorization": f"Bearer {api_key}"}
+            _groq_key = os.environ.get('GROQ_API_KEY', '')
+            headers = {"Authorization": f"Bearer {_groq_key}"}
             
             token_buffer = ""
             sprint_start = time.time()
@@ -8838,6 +10105,7 @@ class AQIConversationRelayServer:
         first_audio_logged = False
         prev_sentence_text = None
         question_count = 0  # [QUESTION CAP] Track questions — drop 2nd+ to prevent double-question pattern
+        hie_reset_turn()  # [2026-03-16 FIX] Reset per-turn softener tracking to prevent "Look...Look..." repetition
         
         # TTS prefetch state
         prefetch_future = None
@@ -8888,7 +10156,7 @@ class AQIConversationRelayServer:
                     if _ctx.get('_bridge_sent'):
                         await asyncio.sleep(0.3)
                     else:
-                        await asyncio.sleep(0.1)  # Brief settling time after user speech
+                        await asyncio.sleep(0.05)  # [2026-03-13] 0.1→0.05s — 50ms faster CNG start
                     
                     _cng_frames_sent = 0
                     _max_drift_ms = 0.0  # Track worst-case timing drift
@@ -8954,13 +10222,15 @@ class AQIConversationRelayServer:
         # This produces audio ~500-800ms faster than waiting for the full response.
         _sprint_text = ""
         _spec_skip_first_full = False
+        _sprint_cache_hit = False  # [MEASUREMENT] Track if first audio came from TTS cache
         
         # === [EARLY SPRINT] Check if braided pipeline already produced audio ===
         # If _fire_early_sprint_pipeline() completed during VAD silence window,
         # use its pre-computed sprint audio instead of firing a new sprint.
         # This saves ~350ms because STT+LLM+TTS already ran speculatively.
         _early_sprint_used = False
-        if EARLY_SPRINT_ENABLED and context.get('_early_sprint_done') and context.get('_early_sprint_audio'):
+        _is_calibration_sprint = context.get('prospect_info', {}).get('calibration_mode', False)
+        if EARLY_SPRINT_ENABLED and not _is_calibration_sprint and context.get('_early_sprint_done') and context.get('_early_sprint_audio'):
             _es_audio = context['_early_sprint_audio']
             _es_text = context.get('_early_sprint_text', '')
             logger.info(f"[EARLY-SPRINT] ★ Using pre-computed sprint: '{_es_text[:60]}' ({len(_es_audio)} bytes)")
@@ -9023,7 +10293,8 @@ class AQIConversationRelayServer:
                 logger.info(f"[EARLY-SPRINT] Cached sprint audio for '{_es_text[:40]}'")
 
             _early_sprint_used = True
-            logger.info(f"[EARLY-SPRINT] ★ Early sprint consumed — {_es_frame} frames, {total_frames * 20}ms audio")
+            _sprint_cache_hit = bool(context.get('_early_sprint_cache_hit', False))
+            logger.info(f"[EARLY-SPRINT] ★ Early sprint consumed — {_es_frame} frames, {total_frames * 20}ms audio, cache_hit={_sprint_cache_hit}")
 
         if not _early_sprint_used and sprint_future is not None:
             _sprint_t0 = time.time()
@@ -9057,7 +10328,14 @@ class AQIConversationRelayServer:
                 if not sprint_sentence or len(sprint_sentence) <= 3:
                     logger.warning(f"[SPECULATIVE] Sprint clause killed by chatbot killer. Falling through to full LLM.")
                     continue
-                
+
+                # [SAP-1 ETHICS] Constitutional virtue check on sprint output
+                if SAP1_WIRED and self.soul_core and sprint_sentence:
+                    _sap1_ok, _sap1_reason = self.soul_core.evaluate_intent(sprint_sentence, 0.5)
+                    if not _sap1_ok:
+                        logger.warning(f"[SAP-1 VETO] Sprint blocked: '{sprint_sentence[:60]}' — {_sap1_reason}")
+                        continue
+
                 # TTS synthesis — immediate, no prefetch complexity needed
                 _tts_t0 = time.time()
                 # [INSTRUMENT] Stamp TTS start for sprint path
@@ -9066,9 +10344,10 @@ class AQIConversationRelayServer:
 
                 # [2026-03-05 LATENCY FIX] Check sprint TTS cache first — skip synthesis
                 # entirely for common opening phrases (saves 400-500ms per turn).
-                _cached_sprint_audio = self.sprint_tts_cache.get(sprint_sentence) or self.greeting_cache.get(sprint_sentence)
+                _cached_sprint_audio = self.sprint_tts_cache.get(sprint_sentence) or self._get_cached_greeting_audio(sprint_sentence, hpl_state=context.get('_hpl_state'))
                 if _cached_sprint_audio:
                     logger.info(f"[SPRINT CACHE HIT] '{sprint_sentence}' — skipping TTS ({len(_cached_sprint_audio)} bytes)")
+                    _sprint_cache_hit = True
                     sprint_audio = _cached_sprint_audio
                     _sprint_text = sprint_sentence
                     full_response_text = sprint_sentence + " "
@@ -9298,7 +10577,22 @@ class AQIConversationRelayServer:
             
             if sentence is None:
                 break  # LLM done
-            
+
+            # [HPL 37] Verify that the current voice fingerprint matches the greeting
+            hpl_state = context.get('_hpl_state')
+            if hpl_state and sentence_idx == 0:
+                current_fp = hpl_state.compute_voice_fingerprint()
+                if hpl_state.session_voice_fingerprint:
+                    if hpl_state.session_voice_fingerprint != current_fp:
+                        logger.warning(
+                            f"[HPL] Voice fingerprint drift detected at first sentence: "
+                            f"greeting={hpl_state.session_voice_fingerprint[:8]}..., current={current_fp[:8]}..."
+                        )
+                        # Reset to the new fingerprint (future implementations should regenerate greeting)
+                        hpl_state.session_voice_fingerprint = current_fp
+                else:
+                    hpl_state.session_voice_fingerprint = current_fp
+
             # [SPECULATIVE DECODING] Skip first full sentence if sprint already covered it
             if _spec_skip_first_full:
                 _spec_skip_first_full = False
@@ -9306,14 +10600,26 @@ class AQIConversationRelayServer:
                     sprint_words = set(_sprint_text.lower().split())
                     sent_words = set(sentence.lower().split())
                     overlap = len(sprint_words & sent_words) / len(sent_words) if sent_words else 0
-                    # [FIX 2026-02-26] ALWAYS skip the first full sentence when sprint was used.
-                    # Previously, diverged sentences (low overlap) caused both to play → stuttering.
-                    # Sprint already gave the listener a coherent opening. Playing a DIFFERENT
-                    # first sentence on top creates "I work with businesses — It's Alan from" stutter.
-                    logger.info(f"[SPECULATIVE] Skipping first full sentence (overlap {overlap:.0%}, sprint played): '{sentence[:60]}'")
-                    prev_sentence_text = sentence
-                    sentence_idx += 1
-                    continue
+                    # [2026-04-03] Short-acknowledgment fix: only skip sentence 1 if sprint was
+                    # SUBSTANTIVE (>3 words). The original rule was ALWAYS skip — but this created
+                    # sentence fragments. sprint="Right." (1 word), LLM_S1 SKIPPED="So the issue
+                    # is interchange fees.", LLM_S2 PLAYS="The processor marks those up." → Alan
+                    # said "Right. The processor marks those up." — no antecedent, sounds like a
+                    # non sequitur.
+                    #
+                    # Now: sprint ≤3 words (pure acknowledgment) → play sprint + LLM_S1 + LLM_S2.
+                    # "Right. So the issue is interchange fees. The processor marks those up." ✓
+                    # sprint >3 words (substantive opener) → still skip LLM_S1 to prevent
+                    # double-opener stutter ("Thing is X. Thing is also Y." ✗).
+                    _sprint_word_count = len(_sprint_text.split())
+                    if _sprint_word_count > 3:
+                        logger.info(f"[SPECULATIVE] Skipping first full sentence — sprint was substantive ({_sprint_word_count} words, overlap {overlap:.0%}): '{sentence[:60]}'")
+                        prev_sentence_text = sentence
+                        sentence_idx += 1
+                        continue
+                    else:
+                        logger.info(f"[SPECULATIVE] Sprint was short acknowledgment ({_sprint_word_count} words) — playing full LLM sentence 1: '{sentence[:60]}'")
+                        # Fall through — do NOT skip, sentence 1 plays after sprint
             
             # Check if superseded by new speech
             if context.get('response_generation') != generation:
@@ -9346,6 +10652,30 @@ class AQIConversationRelayServer:
                 except Exception as _gov_err:
                     logger.debug(f"[GOVERNANCE] Filter error (non-fatal): {_gov_err}")
             
+            # [PCU-1.0 HIE] Human Imperfection Engine — add softeners/fillers
+            # Runs after governance (so we don't soften a dropped sentence) and
+            # before question cap (so softened sentences can be properly counted).
+            _hie_turn_count = len(context.get('messages', []))
+            
+            # [2026-03-16 FIX] Bridge-aware LLM opener strip: if bridge "Yeah..." was
+            # played and sentence 1 starts with "Yeah," / "Yeah " / "Right," etc.,
+            # strip the duplicate opener word so caller doesn't hear it twice.
+            _bt = context.get('_bridge_text')
+            if _bt and sentence_idx == 0:
+                _bw = _bt.strip().rstrip('.').strip().lower()
+                _sw = sentence.lstrip()
+                _sw_lower = _sw.lower()
+                if _sw_lower.startswith(_bw + ',') or _sw_lower.startswith(_bw + ' '):
+                    _cut = len(_bw) + 1  # +1 for the comma or space
+                    _stripped = _sw[_cut:].lstrip()
+                    if _stripped:
+                        # Re-capitalize first character
+                        _stripped = _stripped[0].upper() + _stripped[1:] if len(_stripped) > 1 else _stripped.upper()
+                        logger.info(f"[BRIDGE STRIP] Removed duplicate opener '{_bw}' from sentence 1: '{sentence[:40]}' → '{_stripped[:40]}'")
+                        sentence = _stripped
+            
+            sentence = hie_transform_sentence(sentence, turn_count=_hie_turn_count, sentence_idx=sentence_idx, bridge_text=context.get('_bridge_text'))
+            
             # [QUESTION CAP] One question per turn — drop extras
             # Prevents "Do you have a website? And how are you handling payments?"
             # and "Does that make sense? Any questions on that?" patterns.
@@ -9357,8 +10687,20 @@ class AQIConversationRelayServer:
                     sentence_idx += 1
                     continue
             
+            # [SAP-1 ETHICS] Constitutional virtue check — Tenet 2 (Surplus) + Tenet 4 (Truth)
+            # Fires after all other sentence filters, before TTS synthesis.
+            # impact=0.5: Alan's mission is always pro-prospect (never zero-sum).
+            # Real protection: catches LLM drift toward deceptive phrasing (Tenet 4).
+            if SAP1_WIRED and self.soul_core and sentence:
+                _sap1_ok, _sap1_reason = self.soul_core.evaluate_intent(sentence, 0.5)
+                if not _sap1_ok:
+                    logger.warning(f"[SAP-1 VETO] Blocked sentence: '{sentence[:60]}' — {_sap1_reason}")
+                    prev_sentence_text = sentence
+                    sentence_idx += 1
+                    continue
+
             logger.info(f"[ORCHESTRATED] Sentence {sentence_idx+1}: '{sentence[:60]}'")
-            
+
             # Accumulate full response
             if full_response_text:
                 full_response_text += " "
@@ -9375,9 +10717,13 @@ class AQIConversationRelayServer:
                 # [ORGAN 7] Per-sentence prosody refinement
                 # Peek queue to check if this is the last sentence
                 is_last = sentence_q.empty()
-                sentence_prosody = refine_prosody_per_sentence(sentence, prosody_intent, is_last_sentence=is_last)
-                if sentence_prosody != prosody_intent:
-                    logger.info(f"[PROSODY REFINE] {prosody_intent} → {sentence_prosody} for: '{sentence[:50]}'")
+                # [2026-03-16 FIX-2] Skip refinement for calibration — locked to neutral
+                if _is_calibration_call:
+                    sentence_prosody = prosody_intent
+                else:
+                    sentence_prosody = refine_prosody_per_sentence(sentence, prosody_intent, is_last_sentence=is_last)
+                    if sentence_prosody != prosody_intent:
+                        logger.info(f"[PROSODY REFINE] {prosody_intent} → {sentence_prosody} for: '{sentence[:50]}'")
                 
                 _tts_t0 = time.time()
                 # [INSTRUMENT] Stamp TTS start for main path
@@ -9533,9 +10879,13 @@ class AQIConversationRelayServer:
                         # [ORGAN 7] Per-sentence prosody refinement for prefetched sentence
                         # Peek once more to see if this prefetched sentence is likely the last
                         prefetch_is_last = sentence_q.empty()
-                        prefetch_prosody = refine_prosody_per_sentence(next_sentence_peek, prosody_intent, is_last_sentence=prefetch_is_last)
-                        if prefetch_prosody != prosody_intent:
-                            logger.info(f"[PROSODY REFINE PREFETCH] {prosody_intent} → {prefetch_prosody} for: '{next_sentence_peek[:50]}'")
+                        # [2026-03-16 FIX-2] Skip refinement for calibration — locked to neutral
+                        if _is_calibration_call:
+                            prefetch_prosody = prosody_intent
+                        else:
+                            prefetch_prosody = refine_prosody_per_sentence(next_sentence_peek, prosody_intent, is_last_sentence=prefetch_is_last)
+                            if prefetch_prosody != prosody_intent:
+                                logger.info(f"[PROSODY REFINE PREFETCH] {prosody_intent} → {prefetch_prosody} for: '{next_sentence_peek[:50]}'")
                         # Start TTS in background — will be awaited in next iteration
                         prefetch_future = loop.run_in_executor(
                             self.executor,
@@ -9790,6 +11140,8 @@ class AQIConversationRelayServer:
                 'streaming_overhead_ms': round(max(0, streaming_overhead), 1),
                 'sprint_ms': round(_telemetry.get('sprint_ms') or 0, 1),
                 'sprint_text': _sprint_text if _sprint_text else None,
+                'cache_hit': _sprint_cache_hit,
+                'speculation_used': _early_sprint_used,
                 'sentences': sentence_idx,
                 'frames': total_frames,
                 # [INSTRUMENT] Stage-level breakdown (ms from vad_end)
@@ -9815,6 +11167,62 @@ class AQIConversationRelayServer:
                         f"llm_start={_stg.get('llm_start_ms')} | llm_1st={_stg.get('llm_first_token_ms')} | "
                         f"llm_done={_stg.get('llm_done_ms')} | tts_start={_stg.get('tts_start_ms')} | "
                         f"tts_1st={_stg.get('tts_first_audio_ms')} | play={_stg.get('play_start_ms')}")
+            # [2026-03-13 MEASUREMENT CAMPAIGN] Write first-turn-only log for Monday's 40-call batch
+            # This file captures ONLY the first human-answered turn per call — the metric that matters.
+            if turn_number == 1:
+                _fa_record = {
+                    'ts': latency_record['ts'],
+                    'call_sid': latency_record['call_sid'],
+                    'first_audio_ms': latency_record['first_audio_latency_ms'],
+                    'sprint_ttft_ms': round(_telemetry.get('ttft_ms') or 0, 1),
+                    'cache_hit': _sprint_cache_hit,
+                    'speculation_used': _early_sprint_used,
+                    'sprint_text': _sprint_text if _sprint_text else None,
+                    'stt_lag_ms': _stg.get('stt_done_ms'),
+                    'llm_ttft_ms': round(_telemetry.get('ttft_ms') or 0, 1),
+                    'tts_first_chunk_ms': _stg.get('tts_first_audio_ms'),
+                    'play_start_ms': _stg.get('play_start_ms'),
+                }
+                with open('data/latency/first_audio_campaign.jsonl', 'a') as _fa_f:
+                    _fa_f.write(json.dumps(_fa_record) + '\n')
+                logger.info(
+                    f"[CAMPAIGN] ★ FIRST_AUDIO={_fa_record['first_audio_ms']:.0f}ms "
+                    f"cache_hit={_sprint_cache_hit} speculation={_early_sprint_used} "
+                    f"stt_lag={_fa_record['stt_lag_ms']} llm_ttft={_fa_record['llm_ttft_ms']} "
+                    f"play={_fa_record['play_start_ms']}"
+                )
+
+            # [2026-03-16 CALIBRATION MODE] Per-turn calibration telemetry
+            _is_cal_log = context.get('prospect_info', {}).get('calibration_mode', False)
+            if _is_cal_log:
+                _cal_phase_log = context.get('prospect_info', {}).get('calibration_phase', 1)
+                _cal_record = {
+                    'ts': latency_record['ts'],
+                    'call_sid': latency_record['call_sid'],
+                    'turn': turn_number,
+                    'mode': 'calibration',
+                    'phase': _cal_phase_log,
+                    'first_audio_ms': latency_record['first_audio_latency_ms'],
+                    'sprint_ttft_ms': round(_telemetry.get('ttft_ms') or 0, 1),
+                    'cache_hit': _sprint_cache_hit,
+                    'user_text': user_text[:100] if user_text else None,
+                    'alan_text': (full_response_text[:100] if full_response_text else None),
+                    'organs_active': list(_calibration_allowed_organs) if _is_calibration_call else 'all',
+                    'organs_stripped': _calibration_skip_organs if _is_calibration_call else False,
+                    'stt_lag_ms': _stg.get('stt_done_ms'),
+                    'llm_ttft_ms': round(_telemetry.get('ttft_ms') or 0, 1),
+                    'tts_first_chunk_ms': _stg.get('tts_first_audio_ms'),
+                    'play_start_ms': _stg.get('play_start_ms'),
+                }
+                import os as _os_cal
+                _os_cal.makedirs('data/calibration', exist_ok=True)
+                with open('data/calibration/calibration_turns.jsonl', 'a') as _cal_f:
+                    _cal_f.write(json.dumps(_cal_record) + '\n')
+                logger.info(
+                    f"[CALIBRATION] Phase {_cal_phase_log} Turn {turn_number} — "
+                    f"FIRST_AUDIO={latency_record['first_audio_latency_ms']:.0f}ms "
+                    f"organs={'stripped' if _calibration_skip_organs else 'active'}"
+                )
         except Exception as _lat_err:
             logger.debug(f"[LATENCY PROFILER] Write failed: {_lat_err}")
         
@@ -9869,10 +11277,27 @@ class AQIConversationRelayServer:
                 pass
 
         # During greeting, ignore input (greeting must complete first)
+        # [2026-03-13 FIX] If EAB classified as HUMAN and this is a GOA-eligible call,
+        # store the speech so the GOA listen gate can detect it and skip segment 2.
+        # Without this, humans who say "Hello?" during the prefix get their speech
+        # dropped, then the gate sees silence, plays the full monologue, and the
+        # human hangs up from the awkward non-responsive scripted greeting.
         current_state = context.get('conversation_state')
         if current_state == 'FIRST_GREETING_PENDING':
-            logger.info(f"[FIRST TURN] Ignored user input '{user_text}' while greeting is pending.")
+            _eab_class = context.get('_eab_env_class', '')
+            if _eab_class == 'HUMAN' and user_text and len(user_text.strip()) > 0:
+                context['_pre_gate_human_speech'] = user_text
+                logger.info(f"[FIRST TURN] Human spoke during prefix: '{user_text}' — stored for GOA gate")
+            else:
+                logger.info(f"[FIRST TURN] Ignored user input '{user_text}' while greeting is pending.")
             return None
+        
+        # [GOA-1.0] During listen gate, process input normally — this IS the point.
+        # The human responded to segment 1 ("Hey, this is Alan."). Their speech is
+        # the most valuable signal of the call. Route it through the First-Response
+        # Framework / FAST_PATH for an instant contextual reply.
+        if current_state == 'GOA_LISTEN_GATE':
+            logger.info(f"[GOA-1.0] Processing user input '{user_text}' received during listen gate")
 
         # Already superseded by newer speech? Don't even start.
         if context.get('response_generation') != generation:
@@ -9900,6 +11325,50 @@ class AQIConversationRelayServer:
                 if _is_instructor_call and _ci_result and _ci_result.get('system') == 'dead_end':
                     logger.info(f"[CONV INTEL] Instructor mode: dead-end suppressed for '{user_text[:40]}'")
                     _ci_result = None
+                
+                # [PCU-1.0 RCM] AI probe deflection — NOT an abort, just a fast response
+                # Speaks a pre-cached human-sounding deflection and skips LLM for this turn.
+                # The call continues normally after the deflection.
+                if _ci_result and not _ci_result.get('abort') and _ci_result.get('system') == 'ai_probe':
+                    _deflection = _ci_result.get('deflection', "Ha — no, it's just me. So anyway, are you guys processing cards there?")
+                    logger.info(f"[RCM] AI probe deflected — speaking: '{_deflection[:60]}'")
+                    _stream_sid = context.get('streamSid')
+                    if _stream_sid and websocket:
+                        await self.synthesize_and_stream_greeting(websocket, _deflection, _stream_sid)
+                    
+                    # Record in conversation history so LLM has context
+                    agent = context.get('agent_instance')
+                    if agent:
+                        agent.conversation_history.add_message("User", user_text)
+                        agent.conversation_history.add_message("Alan", _deflection)
+                    context.setdefault('messages', []).append({
+                        'timestamp': datetime.now(),
+                        'user': user_text,
+                        'alan': _deflection,
+                        'sentiment': 'neutral',
+                        'interest': 0,
+                    })
+                    context['alan_turn_count'] = context.get('alan_turn_count', 0) + 1
+                    
+                    # Log to CDC
+                    if CALL_CAPTURE_WIRED:
+                        try:
+                            _cdc_turn(context.get('call_sid', ''), {
+                                'user_text': user_text,
+                                'alan_text': _deflection,
+                                'sentiment': 'neutral',
+                                'conv_intel_system': 'ai_probe',
+                                'conv_intel_outcome': 'ai_probe_deflected',
+                            })
+                        except Exception:
+                            pass
+                    
+                    return {'type': 'conversation_reply', 'speech': _deflection}
+                
+                # Clear non-abort results so abort handling below only fires on real aborts
+                if _ci_result and not _ci_result.get('abort'):
+                    _ci_result = None
+                
                 if _ci_result and _ci_result.get('abort'):
                     _ci_system = _ci_result.get('system', 'unknown')
                     _ci_outcome = _ci_result.get('outcome', _ci_system)
@@ -9997,6 +11466,12 @@ class AQIConversationRelayServer:
             _fsm = context.get('_call_fsm')
             if _fsm:
                 _fsm.handle_event(CallFlowEvent.FIRST_SPEECH)
+                # [GOA-1.0 FIX] If FSM is already in DIALOGUE (from GATE_SPEECH),
+                # FIRST_SPEECH is a no-op — _sync_context() won't fire, so
+                # first_turn_complete stays False. Set it manually to prevent
+                # this block from double-firing on the next user utterance.
+                if not context.get('first_turn_complete'):
+                    context['first_turn_complete'] = True
             else:
                 context['first_turn_complete'] = True
                 context['conversation_state'] = 'dialogue'
@@ -10466,9 +11941,32 @@ class AQIConversationRelayServer:
             logger.info(f"[BAL] Locked Profile: consultative/normal/medium (stable)")
             logger.info(f"[CRG] Reasoning Budget Applied.")
 
+            # =================================================================
+            # [2026-03-13 SIMPLIFICATION] INSTRUCTOR MODE FAST-PATH
+            # [2026-03-16 CALIBRATION MODE] Phase-gated organ activation
+            # =================================================================
+            # Instructor/training calls don't need: handoff (25), outbound comms
+            # (26), language switch (27), calendar (28), competitive intel (34),
+            # personality engine, or soul core. These organs add ~2-10ms each
+            # and inject context that's irrelevant for coaching sessions.
+            #
+            # Calibration Phase 1: SAME as instructor — strip all non-essential
+            # Calibration Phase 2: Selectively re-enable per _calibration_allowed_organs
+            # Calibration Phase 3+: Full pipeline (all organs active)
+            # =================================================================
+            _is_instructor_pipeline = context.get('prospect_info', {}).get('instructor_mode', False)
+            _is_calibration_pipeline = context.get('prospect_info', {}).get('calibration_mode', False)
+            _cal_phase_pipe = context.get('prospect_info', {}).get('calibration_phase', 1)
+            _cal_strip_pipeline = _is_calibration_pipeline and _cal_phase_pipe <= 2
+            # [2026-03-16 FIX] PE and PCU-1.5 should ONLY be stripped in Phase 1 (raw baseline).
+            # Phase 2 re-enables organs AND needs PE/PCU for conversational quality.
+            _cal_strip_personality = _is_calibration_pipeline and _cal_phase_pipe <= 1
+
             # [ORGAN 25] Warm Handoff — escalation trigger evaluation
+            # [2026-03-13 SIMPLIFICATION] Skip for instructor mode
+            # [2026-03-16 CALIBRATION] Skip for Phase 1-2
             _ho = context.get('_handoff_organ')
-            if _ho and WARM_HANDOFF_WIRED and context.get('_handoff_state') == 'inactive':
+            if _ho and WARM_HANDOFF_WIRED and not _is_instructor_pipeline and not _cal_strip_pipeline and context.get('_handoff_state') == 'inactive':
                 try:
                     _t_handoff = time.time()
                     _escalation_reason = None
@@ -10507,7 +12005,7 @@ class AQIConversationRelayServer:
                     logger.warning(f"[ORGAN 25] Escalation check failed (non-fatal): {_ho_err}")
 
             # [ORGAN 25] Consent detection — when pending, check if merchant confirms
-            elif _ho and WARM_HANDOFF_WIRED and context.get('_handoff_state') == 'pending_consent':
+            elif _ho and WARM_HANDOFF_WIRED and not _is_instructor_pipeline and context.get('_handoff_state') == 'pending_consent':
                 try:
                     _text_lower_ho = user_text.lower()
                     _consent_given = any(p in _text_lower_ho for p in _HANDOFF_CONSENT_PATTERNS)
@@ -10549,8 +12047,10 @@ class AQIConversationRelayServer:
                     logger.warning(f"[ORGAN 25] Consent detection failed (non-fatal): {_ho_consent_err}")
 
             # [ORGAN 26] Outbound Comms — mid-call send request detection
+            # [2026-03-13 SIMPLIFICATION] Skip for instructor mode
+            # [2026-03-16 CALIBRATION] Skip for Phase 1-2
             _oc = context.get('_outbound_comms')
-            if _oc and OUTBOUND_COMMS_WIRED:
+            if _oc and OUTBOUND_COMMS_WIRED and not _is_instructor_pipeline and not _cal_strip_pipeline:
                 try:
                     _t_oc = time.time()
                     _text_lower_oc = user_text.lower()
@@ -10606,8 +12106,10 @@ class AQIConversationRelayServer:
                     logger.warning(f"[ORGAN 26] Outbound detection failed (non-fatal): {_oc_err}")
 
             # [ORGAN 27] Language Switch — detection + switch request + confirmation
+            # [2026-03-13 SIMPLIFICATION] Skip for instructor mode
+            # [2026-03-16 CALIBRATION] Skip for Phase 1-2
             _ls = context.get('_language_organ')
-            if _ls and LANGUAGE_SWITCH_WIRED:
+            if _ls and LANGUAGE_SWITCH_WIRED and not _is_instructor_pipeline and not _cal_strip_pipeline:
                 try:
                     _t_ls = time.time()
                     _ls_switch_state = context.get('_language_switch_state', 'inactive')
@@ -10666,8 +12168,10 @@ class AQIConversationRelayServer:
                     logger.warning(f"[ORGAN 27] Language detection failed (non-fatal): {_ls_err}")
 
             # [ORGAN 28] Calendar Engine — scheduling request detection + confirmation
+            # [2026-03-13 SIMPLIFICATION] Skip for instructor mode
+            # [2026-03-16 CALIBRATION] Skip for Phase 1-2
             _cal = context.get('_calendar_organ')
-            if _cal and CALENDAR_ENGINE_WIRED:
+            if _cal and CALENDAR_ENGINE_WIRED and not _is_instructor_pipeline and not _cal_strip_pipeline:
                 try:
                     _t_cal = time.time()
                     _cal_state = context.get('_calendar_state', 'inactive')
@@ -10988,7 +12492,7 @@ class AQIConversationRelayServer:
                         logger.info(f"[ORGAN 35] Competitive intel blocked: {_iq_chk.get('reason', 'budget')}")
                 except Exception:
                     pass  # fail-open
-            if COMPETITIVE_INTEL_WIRED and _iq_allow_competitive:
+            if COMPETITIVE_INTEL_WIRED and _iq_allow_competitive and not _is_instructor_pipeline:
                 try:
                     _t_competitive = time.time()
                     _comp_name, _comp_trigger = detect_competitor_mention(user_text)
@@ -11067,7 +12571,7 @@ class AQIConversationRelayServer:
             # Fail-open: if PersonalityEngine not loaded, falls back to no-op.
             # Toggle: PERSONALITY_ENGINE_ENABLED (top of file)
             # =================================================================
-            if not PERSONALITY_ENGINE_ENABLED:
+            if not PERSONALITY_ENGINE_ENABLED or _is_instructor_pipeline or _cal_strip_personality:
                 context.pop('_personality_flare', None)
                 context.pop('_personality_state', None)
                 context.pop('_personality_prosody_bias', None)
@@ -11096,14 +12600,46 @@ class AQIConversationRelayServer:
                 logger.debug(f"[PERSONALITY ENGINE] Processing failed (non-fatal): {_pm_e}")
 
             # =================================================================
+            # [PCU-1.5] Humanization Engine — per-turn processing
+            # =================================================================
+            # 6-system pipeline: warmth, silence timing, human error,
+            # adaptive persona, curiosity/humor, AI signature suppression.
+            # Runs AFTER PE so it can layer on top of personality state.
+            # Stores results in context['_pcu_state'] for prompt builder.
+            # Stores timing in context['_pcu_timing'] for delay adjustments.
+            # Toggle: PCU_HUMANIZATION_ENABLED (top of file)
+            # =================================================================
+            if not PCU_HUMANIZATION_ENABLED or _is_instructor_pipeline or _cal_strip_personality:
+                context.pop('_pcu_state', None)
+                context.pop('_pcu_timing', None)
+            else:
+              try:
+                _pcu = get_pcu_engine()
+                _user_text_pcu = user_text if isinstance(user_text, str) else ''
+                _pcu_result = _pcu.process_turn(_user_text_pcu, analysis, context)
+                if _pcu_result:
+                    context['_pcu_state'] = {
+                        'system_instruction': _pcu_result.get('system_instruction', ''),
+                        'persona': _pcu_result.get('persona', {}),
+                    }
+                    context['_pcu_timing'] = _pcu_result.get('timing', {})
+                    # Log telemetry
+                    _call_sid_pcu = context.get('call_sid', 'unknown')
+                    _pcu.log_turn(_call_sid_pcu, _pcu_result)
+              except Exception as _pcu_e:
+                logger.debug(f"[PCU-1.5] Processing failed (non-fatal): {_pcu_e}")
+
+            # =================================================================
             # [SOUL CORE] Ethical awareness — pre-flight check before LLM call
             # =================================================================
             # Evaluates current conversational action against SAP-1 tenets.
             # If vetoed, injects an ethical constraint into context so the
             # prompt builder can steer Alan away from deceptive/zero-sum framing.
             # Fail-open: if SoulCore not loaded, no constraint is added.
+            # [2026-03-13 SIMPLIFICATION] Skip for instructor mode
             # =================================================================
-            try:
+            if not _is_instructor_pipeline:
+              try:
                 _action_desc = f"respond to merchant who said: {user_text[:80]}"
                 _impact = 0.0  # Default neutral — no harm detected
                 if analysis.get('sentiment') == 'negative':
@@ -11114,7 +12650,7 @@ class AQIConversationRelayServer:
                     logger.warning(f"[SOUL CORE] Ethical veto: {_reason}")
                 else:
                     context.pop('_ethical_constraint', None)
-            except Exception as _sc_e:
+              except Exception as _sc_e:
                 logger.debug(f"[SOUL CORE] Evaluation failed (non-fatal): {_sc_e}")
 
             # =================================================================
@@ -11138,8 +12674,16 @@ class AQIConversationRelayServer:
             # Both audio streams overlap → caller hears "Yeah, so... Thing is, I..."
             # Sprint already provides fast-response with actual LLM content.
             # Bridge is now redundant — sprint replaces it entirely.
-            _bridge_disabled = True  # Set False to re-enable bridge
-            if not _bridge_disabled and CONV_INTEL_WIRED and not context.get('stream_ended') and _turn_count > 1:
+            _bridge_disabled = False  # [2026-03-13 LATENCY FIX] Re-enabled. Was True since 2026-03-10.
+            # [2026-03-13] Root cause of original stutter: asyncio.create_task() fire-and-forget
+            # caused bridge audio to overlap with sprint audio on the same WebSocket.
+            # Fix: AWAIT bridge completion before entering orchestrated pipeline.
+            # Bridge plays ~300-500ms of cached audio ("Got it...", "Yeah, so..."),
+            # filling dead air while LLM starts, then sprint takes over with real content.
+            # No overlap because bridge finishes before sprint streams.
+            _is_calibration_bridge = context.get('prospect_info', {}).get('calibration_mode', False)
+            hpl_state = context.get('_hpl_state')  # [2026-04-02 FIX] Initialize before bridge block — prevents UnboundLocalError at lines 12629/12632
+            if not _bridge_disabled and not _is_calibration_bridge and CONV_INTEL_WIRED and not context.get('stream_ended') and _turn_count > 1:
                 _guard = context.get('_conversation_guard')
                 if _guard:
                     _bridge_preprocess_ms = 1000 * (time.time() - pipeline_t0)
@@ -11158,7 +12702,14 @@ class AQIConversationRelayServer:
                         _bridge_sid = context.get('streamSid')
                         if _bridge_text and _bridge_sid and websocket:
                             logger.info(f"[LATENCY BRIDGE] Sending bridge: '{_bridge_text}' (preprocess={_bridge_preprocess_ms:.0f}ms)")
-                            asyncio.create_task(self.synthesize_and_stream_greeting(websocket, _bridge_text, _bridge_sid))
+                            # [2026-03-13 FIX] AWAIT instead of create_task — prevents overlap with sprint.
+                            # Bridge audio is short (~300-500ms cached). Blocking here is intentional:
+                            # it fills dead air and finishes before orchestrated pipeline streams sprint.
+                            if hpl_state:
+                                hpl_state.in_bridge = True
+                            await self.synthesize_and_stream_greeting(websocket, _bridge_text, _bridge_sid)
+                            if hpl_state:
+                                hpl_state.in_bridge = False
                             _component_times['bridge_ms'] = 1000 * (time.time() - pipeline_t0) - _bridge_preprocess_ms
                             _bridge_sent = True
                             context['_bridge_sent'] = True      # LLM fallback path uses this
@@ -11183,20 +12734,39 @@ class AQIConversationRelayServer:
             # =================================================================
             _t_orchestra = time.time()
             _is_instructor_pipe = context.get('prospect_info', {}).get('instructor_mode', False)
-            if _is_instructor_pipe:
+            _is_calibration_pipe = context.get('prospect_info', {}).get('calibration_mode', False)
+            if _is_calibration_pipe:
+                # [2026-03-16 FIX-5] Calibration: 30s pipeline timeout.
+                # OpenAI TTS can stall (12s observed). 6s streaming timeout +
+                # 3s blocking fallback + 3 more sentences = ~18s worst case.
+                # 30s gives comfortable headroom.
+                _pipeline_timeout = 30.0
+            elif _is_instructor_pipe:
                 _pipeline_timeout = 10.0
             elif _bridge_sent:
                 # [2026-03-05] Was 7.0→5.5s. Bridge already filled dead air,
                 # but 7s was too generous — keeps the call alive waiting for LLM
                 # that may never arrive. 5.5s is enough for 80-token generation
                 # under normal memory conditions. Fallback fires if exceeded.
-                _pipeline_timeout = 5.5
+                # [2026-03-13 FIX] Bumped 5.5→7.0s. Sprint delivers first audio
+                # in ~1.5-2.2s. The 5.5s limit was killing the pipeline TAIL
+                # (remaining TTS chunks) during transient OpenAI latency spikes,
+                # triggering session resets that poisoned the NEXT turn with dead air.
+                _pipeline_timeout = 7.0
             else:
-                _pipeline_timeout = 5.0
-            response_text = await asyncio.wait_for(
-                self._orchestrated_response(user_text, analysis, context, websocket, agent, generation=generation),
-                timeout=_pipeline_timeout
-            )
+                # [2026-03-13 FIX] Bumped 5.0→6.5s for same reason as above.
+                _pipeline_timeout = 6.5
+            hpl_state = context.get('_hpl_state')
+            if hpl_state:
+                hpl_state.in_sprint = True
+            try:
+                response_text = await asyncio.wait_for(
+                    self._orchestrated_response(user_text, analysis, context, websocket, agent, generation=generation),
+                    timeout=_pipeline_timeout
+                )
+            finally:
+                if hpl_state:
+                    hpl_state.in_sprint = False
             _component_times['orchestrated_ms'] = 1000 * (time.time() - _t_orchestra)
             
             # [INSTRUCTOR MODE] Record both turns (instructor + Alan) into session
@@ -11257,7 +12827,10 @@ class AQIConversationRelayServer:
                     context.pop('_organism_health_directive', None)
 
                 # Level 4 (UNFIT) — sovereign exit (CW23 tuning: engagement + coaching override)
-                if _health_mon.is_unfit and not context.get('stream_ended'):
+                # [2026-03-16 FIX-4] Calibration: skip UNFIT exit — high latency is expected
+                # from 4-sentence cap + blocking TTS. Don't kill calibration calls.
+                _is_cal_for_health = context.get('prospect_info', {}).get('calibration_mode', False)
+                if _health_mon.is_unfit and not context.get('stream_ended') and not _is_cal_for_health:
                     # CW23: Check if merchant is engaged before triggering exit
                     _turn_count = context.get('turn_count', 0)
                     _last_merchant = context.get('last_merchant_utterance', '')
@@ -11365,7 +12938,30 @@ class AQIConversationRelayServer:
                 _is_instructor_tel = context.get('prospect_info', {}).get('instructor_mode', False)
                 if _tel_mon.should_exit() and not _is_instructor_tel:
                     logger.warning("[TELEPHONY HEALTH] UNUSABLE -- triggering sovereign withdrawal")
-                    _exit_phrase = _tel_mon.get_exit_phrase()
+                    # [TELEPHONY PERCEPTION] Route exit through agent's canonical perception layer.
+                    # Gives the exit phrase constitutional provenance and logs the governance event.
+                    _exit_phrase = _tel_mon.get_exit_phrase()  # default
+                    _agent_for_exit = context.get('agent_instance')
+                    if _agent_for_exit and hasattr(_agent_for_exit, 'perceive_telephony'):
+                        try:
+                            _tp_result = _agent_for_exit.perceive_telephony({
+                                "audio_packets_received": 0,
+                                "audio_packets_lost": 0,
+                                "avg_jitter_ms": 0.0,
+                                "avg_rtt_ms": 0.0,
+                                "has_inbound_audio": False,  # unusable = no usable audio
+                                "has_outbound_audio": True,
+                                "a_leg_connected": not context.get('stream_ended', False),
+                                "b_leg_connected": True,
+                                "webhook_ok": websocket is not None,
+                                "media_negotiated": context.get('streamSid') is not None,
+                            })
+                            _canonical = _tp_result.get('canonical_message')
+                            if _canonical:
+                                _exit_phrase = _canonical  # Use richer canonical phrase
+                            logger.info(f"[TELEPHONY PERCEPTION] sovereign_state={_tp_result.get('sovereign_state')} action={_tp_result.get('action')}")
+                        except Exception as _tp_e:
+                            logger.debug(f"[TELEPHONY PERCEPTION] Perception failed (non-fatal): {_tp_e}")
                     _stream_sid = context.get('streamSid')
                     if _stream_sid and websocket:
                         await self.synthesize_and_stream_greeting(websocket, _exit_phrase, _stream_sid)
@@ -11600,7 +13196,7 @@ class AQIConversationRelayServer:
                 _live_monitor.record_alan_speech(context.get('call_sid', ''), response_text)
 
         except asyncio.TimeoutError:
-            logger.warning("[ORCHESTRATED] ⚠️ Pipeline timeout (6.0s). Recovering.")
+            logger.warning(f"[ORCHESTRATED] ⚠️ Pipeline timeout ({_pipeline_timeout}s). Recovering.")
             # [2026-03-02 FIX] Changed timeout fallback from yet another "quick question"
             # variant to a different formulation. The old text reinforced the "quick question"
             # repetition loop — the LLM saw multiple "quick question" entries in history
@@ -11617,7 +13213,7 @@ class AQIConversationRelayServer:
             self._llm_session.headers.update({"Content-Type": "application/json"})
             logger.info("[RECOVERY] HTTP session reset after timeout")
             if CALL_MONITOR_WIRED:
-                monitor_call_error(context.get('call_sid', ''), 'PIPELINE_TIMEOUT', 'Orchestrated pipeline timeout 6s')
+                monitor_call_error(context.get('call_sid', ''), 'PIPELINE_TIMEOUT', f'Orchestrated pipeline timeout {_pipeline_timeout}s')
             
         except Exception as e:
             logger.error(f"[ORCHESTRATED] Pipeline Error: {e}")
@@ -11662,6 +13258,8 @@ class AQIConversationRelayServer:
         # HUMAN MODEL CLEANUP — No locks to release. Just note what happened.
         was_superseded = context.get('response_generation') != generation
         context['audio_playing'] = False
+        context['twilio_playback_done'] = True  # [2026-03-16 FIX] Reset playback gate — prevents VAD deaf-lock after pipeline timeout
+        context.pop('_bridge_text', None)  # [2026-03-16] Clear bridge text so it doesn't leak to next turn
         if not was_superseded:
             context['responding_ended_at'] = time.time()  # Echo cooldown reference
             context['vad_state'] = 'silence'
@@ -11766,7 +13364,8 @@ class AQIConversationRelayServer:
                 )
                 mulaw_bytes = await self.synthesize_greeting_to_mulaw_bytes(greeting)
                 if mulaw_bytes:
-                    self.greeting_cache[greeting] = mulaw_bytes
+                    cache_key = self._greeting_cache_key(greeting, "neutral")
+                    self.greeting_cache[cache_key] = mulaw_bytes
                     logger.info(f"[ALAN AI] Fallback greeting cached ({len(mulaw_bytes)} bytes)")
             except Exception as e:
                 logger.error(f"[ALAN AI] Fallback cache failed: {e}")
@@ -11808,6 +13407,77 @@ class AQIConversationRelayServer:
         except Exception as e:
             logger.warning(f"[BOOT WARMUP] LLM warmup failed (non-critical): {e}")
 
+def _validate_mode_branches():
+    """
+    [2026-04-03] Startup mode branch assertion.
+
+    PURPOSE: The if/elif chain in _llm_sentence_stream controls per-call sentence caps and
+    token budgets based on mode flags (calibration, instructor). A variable can be defined
+    but never wired into the chain — causing silent fallthrough to the wrong config. This
+    happened in Session 34: _is_instructor_llm_cap was defined but never in the chain, so
+    instructor calls silently ran at 4 sentences/turn instead of 1.
+
+    This function mirrors the exact if/elif logic and asserts the outcome for each mode
+    combination. If any branch is missing or wrong, the server REFUSES TO START.
+
+    MAINTENANCE: If you change the if/elif chain in _llm_sentence_stream, update this
+    function to match. They must stay in sync — that's the contract.
+    """
+    # Expected: (calibration, instructor) -> (max_tokens, max_sentences)
+    _EXPECTED_CAPS = {
+        (True,  False): (150, 4),  # calibration: full response for quality assessment
+        (False, True):  (80,  1),  # instructor: sprint(1) + LLM(1) = 2 statements max
+        (False, False): (80,  2),  # production turn>=8: short, conversational
+    }
+
+    _test_turn_count = 10  # Use turn>=8 to exercise the production fallthrough path
+
+    for (_is_cal, _is_instr), (_exp_tokens, _exp_sentences) in _EXPECTED_CAPS.items():
+        # --- Mirror the exact if/elif chain from _llm_sentence_stream ---
+        if _is_cal:
+            _tok = 150
+            _sent = 4
+        elif _is_instr:
+            _tok = 80
+            _sent = 1
+        elif _test_turn_count >= 8:
+            _tok = 80
+            _sent = 2
+        elif _test_turn_count >= 5:
+            _tok = 80
+            _sent = 2
+        elif _test_turn_count >= 2:
+            _tok = 80
+            _sent = 2
+        else:
+            _tok = 60
+            _sent = 2
+        # --- End mirror ---
+
+        if _sent != _exp_sentences:
+            raise RuntimeError(
+                f"[MODE BRANCH ASSERTION FAILED] "
+                f"calibration={_is_cal} instructor={_is_instr} → "
+                f"_adaptive_max_sentences={_sent} (expected {_exp_sentences}). "
+                f"Branch is missing or wired wrong in _llm_sentence_stream. "
+                f"Fix the if/elif chain BEFORE accepting calls."
+            )
+        if _tok != _exp_tokens:
+            raise RuntimeError(
+                f"[MODE BRANCH ASSERTION FAILED] "
+                f"calibration={_is_cal} instructor={_is_instr} → "
+                f"_adaptive_max_tokens={_tok} (expected {_exp_tokens}). "
+                f"Token cap is wrong in _llm_sentence_stream. "
+                f"Fix the if/elif chain BEFORE accepting calls."
+            )
+
+    logger.info(
+        "[MODE BRANCH ASSERTION] PASSED — "
+        "calibration(4 sent / 150 tok), instructor(1 sent / 80 tok), "
+        "production(2 sent / 80 tok) all resolve correctly. No silent fallthroughs."
+    )
+
+
 async def main():
     """
     Main server function
@@ -11837,7 +13507,12 @@ async def main():
         logger.info(f"[STARTUP] PID {os.getpid()} written to {_pid_file}")
     except Exception as e:
         logger.warning(f"[STARTUP] Could not write PID file: {e}")
-    
+
+    # [2026-04-03] MODE BRANCH ASSERTION — must pass before server accepts any call
+    # Catches silent fallthroughs in the _adaptive_max_sentences if/elif chain.
+    # If this raises, fix the chain in _llm_sentence_stream, then restart.
+    _validate_mode_branches()
+
     server = AQIConversationRelayServer()
 
     # [OPTIMIZATION] Pre-warm Audio Cache

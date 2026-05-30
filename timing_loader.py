@@ -163,6 +163,11 @@ class TimingConfig:
         self.trouble_threshold_ms   = int(_extract(self._raw, st, "trouble_threshold_ms", 700))
         self.standard_max_silence_ms = int(_extract(self._raw, st, "standard_max_silence_ms", 1000))
 
+        # === GOA-1.0 (Greeting Open Architecture) ===
+        goa = "goa"
+        self.goa_listen_gate_duration_s    = _extract(self._raw, goa, "listen_gate_duration_s", 1.5)
+        self.goa_echo_cooldown_during_gate = _extract(self._raw, goa, "echo_cooldown_during_gate_s", 0.3)
+
     def get(self, section: str, key: str, fallback=None):
         """Generic accessor for any config value."""
         return _extract(self._raw, section, key, fallback)

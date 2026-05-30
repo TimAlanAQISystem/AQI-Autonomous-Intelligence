@@ -141,11 +141,25 @@ def register_stt_callback(callback: Callable[[str, str], None]):
     stt_callback = callback
 
 
-def create_stt_session(session_id: str):
+def create_stt_session(session_id: str, pre_seed: bool = True):
     """
     Called when a new voice session starts.
+    
+    [2026-03-13 FIX] Pre-seed: injects 100ms of silence into the buffer so
+    the STT session is immediately ready to accept and merge audio chunks.
+    Without this, the first real audio chunk arrives into an empty buffer
+    and the pydub merge (sum([])) can produce unexpected edge cases.
+    Pre-seeding ensures the AudioSegment chain is warm from frame 0.
     """
-    stt_sessions[session_id] = STTSessionBuffer(session_id)
+    session = STTSessionBuffer(session_id)
+    if pre_seed:
+        # 100ms of silence at 8kHz mono 16-bit = 1600 bytes
+        _seed_pcm = b'\x00\x00' * 800
+        from pydub import AudioSegment as _AS
+        _seed_seg = _AS(data=_seed_pcm, sample_width=2, frame_rate=8000, channels=1)
+        session.audio_segments.append(_seed_seg)
+    stt_sessions[session_id] = session
+    logger.info(f"[STT] Session created for {session_id} (pre_seed={pre_seed})")
 
 
 def close_stt_session(session_id: str):
@@ -199,6 +213,105 @@ STT_MIN_AUDIO_DURATION = 0.3
 # Minimum RMS energy to consider audio as actual speech (not noise/silence)
 # Lowered from 300 — phone audio has attenuated energy, quiet speakers exist
 STT_MIN_RMS_ENERGY = 150
+
+
+# =========================================================================
+# [2026-03-09] EARLY STT — Speculative transcription for braided pipeline
+# =========================================================================
+# Called at VAD speech→silence edge BEFORE the 450ms silence commit.
+# Snapshots the current audio buffer, transcribes it, and returns text
+# WITHOUT nuking the buffer or firing the stt_callback.
+# This is a pure read-only side channel — normal path is unaffected.
+#
+# Contract:
+#   Input:  session_id (to snapshot buffer from)
+#   Output: text (str) or None
+#   Side effects: NONE (no callback, no buffer mutation)
+#   Timeout: 3s hard cap (early STT that takes >3s is useless)
+# =========================================================================
+async def transcribe_early(session_id: str) -> Optional[str]:
+    """
+    Speculative early STT — snapshot buffer, transcribe, return text only.
+    Does NOT fire stt_callback. Does NOT nuke the buffer.
+    Returns transcribed text or None.
+    """
+    session = stt_sessions.get(session_id)
+    if not session or not session.audio_segments:
+        return None
+
+    # Snapshot buffer under lock (copy list, AudioSegments are immutable)
+    try:
+        async with session.lock:
+            if not session.audio_segments:
+                return None
+            snapshot = list(session.audio_segments)  # shallow copy — safe, pydub segments are immutable
+    except Exception:
+        return None
+
+    merged = sum(snapshot)
+
+    # Skip if too short for meaningful STT
+    if merged.duration_seconds < STT_MIN_AUDIO_DURATION:
+        return None
+
+    # Skip if too quiet (silence/noise)
+    try:
+        if merged.rms < STT_MIN_RMS_ENERGY:
+            return None
+    except Exception:
+        pass
+
+    # Cap duration for speed (same as normal path)
+    MAX_EARLY_DURATION = 6.0
+    if merged.duration_seconds > MAX_EARLY_DURATION:
+        trim_ms = int((merged.duration_seconds - MAX_EARLY_DURATION) * 1000)
+        merged = merged[trim_ms:]
+
+    # Construct WAV (same as _transcribe_and_emit but no callback)
+    raw_pcm = merged.raw_data
+    sample_rate = merged.frame_rate
+    sample_width = merged.sample_width
+    channels = merged.channels
+    wav_io = io.BytesIO()
+    data_size = len(raw_pcm)
+    wav_io.write(b'RIFF')
+    wav_io.write(struct.pack('<I', 36 + data_size))
+    wav_io.write(b'WAVE')
+    wav_io.write(b'fmt ')
+    wav_io.write(struct.pack('<I', 16))
+    wav_io.write(struct.pack('<H', 1))
+    wav_io.write(struct.pack('<H', channels))
+    wav_io.write(struct.pack('<I', sample_rate))
+    wav_io.write(struct.pack('<I', sample_rate * channels * sample_width))
+    wav_io.write(struct.pack('<H', channels * sample_width))
+    wav_io.write(struct.pack('<H', sample_width * 8))
+    wav_io.write(b'data')
+    wav_io.write(struct.pack('<I', data_size))
+    wav_io.write(raw_pcm)
+    wav_io.seek(0)
+
+    # Transcribe with tight timeout (3s — early STT that takes longer is useless)
+    try:
+        text = await asyncio.wait_for(
+            asyncio.to_thread(_run_cloud_stt_sync, wav_io),
+            timeout=3.0
+        )
+    except asyncio.TimeoutError:
+        logger.warning("[EARLY-STT] Timed out after 3s — discarding")
+        return None
+    except Exception as e:
+        logger.debug(f"[EARLY-STT] Transcription failed: {e}")
+        return None
+
+    if text and text.strip():
+        text = text.strip()
+        # Filter hallucinations (same as normal path)
+        if text.lower().rstrip('.!?,') in WHISPER_HALLUCINATIONS:
+            logger.warning(f"[EARLY-STT] Filtered hallucination: '{text}'")
+            return None
+        logger.info(f"[EARLY-STT] Partial text: '{text[:80]}'")
+        return text
+    return None
 
 
 async def finalize_and_clear(session_id: str):

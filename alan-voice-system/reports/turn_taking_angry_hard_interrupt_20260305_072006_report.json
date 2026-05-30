@@ -1,0 +1,49 @@
+{
+  "timestamp": "20260305_072006",
+  "scenario": "turn_taking_angry_hard_interrupt",
+  "profile": "calm",
+  "description": "Human interrupts loudly and abruptly. Alan must detect merchant_floor instantly and yield within one syllable.",
+  "result": {
+    "passed": true,
+    "violations": []
+  },
+  "trace_summary": [
+    {
+      "t": 0,
+      "event": "alan_start_speaking",
+      "key_data": {}
+    },
+    {
+      "t": 400,
+      "event": "human_speech_start",
+      "key_data": {
+        "energy_db": 18.0,
+        "transcript": "NO, LISTEN, THAT'S NOT WHAT I SAID!"
+      }
+    },
+    {
+      "t": 400,
+      "event": "haco_detection",
+      "key_data": {
+        "intent_to_speak": true,
+        "merchant_floor": true,
+        "energy_db": 18.0
+      }
+    },
+    {
+      "t": 400,
+      "event": "turn_state_update",
+      "key_data": {
+        "turn_state": "MERCHANT_FLOOR"
+      }
+    },
+    {
+      "t": 520,
+      "event": "alan_yield",
+      "key_data": {
+        "delay_ms": 120
+      }
+    }
+  ],
+  "trace_count": 5
+}

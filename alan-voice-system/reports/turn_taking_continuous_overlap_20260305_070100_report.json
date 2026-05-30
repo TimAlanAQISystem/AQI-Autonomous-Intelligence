@@ -1,0 +1,121 @@
+{
+  "timestamp": "20260305_070100",
+  "scenario": "turn_taking_continuous_overlap",
+  "profile": "calm",
+  "description": "Human repeatedly interrupts mid-sentence. Alan must yield every time and never fight for the floor.",
+  "result": {
+    "passed": true,
+    "violations": []
+  },
+  "trace_summary": [
+    {
+      "t": 0,
+      "event": "alan_start_speaking",
+      "key_data": {}
+    },
+    {
+      "t": 300,
+      "event": "human_speech_start",
+      "key_data": {
+        "energy_db": 12.0,
+        "transcript": "Wait, hold on\u2014"
+      }
+    },
+    {
+      "t": 300,
+      "event": "haco_detection",
+      "key_data": {
+        "intent_to_speak": true,
+        "merchant_floor": true,
+        "energy_db": 12.0
+      }
+    },
+    {
+      "t": 300,
+      "event": "turn_state_update",
+      "key_data": {
+        "turn_state": "MERCHANT_FLOOR"
+      }
+    },
+    {
+      "t": 460,
+      "event": "alan_yield",
+      "key_data": {
+        "delay_ms": 160
+      }
+    },
+    {
+      "t": 900,
+      "event": "alan_speaks",
+      "key_data": {}
+    },
+    {
+      "t": 1200,
+      "event": "human_speech_start",
+      "key_data": {
+        "energy_db": 11.5,
+        "transcript": "No, I mean the other thing."
+      }
+    },
+    {
+      "t": 1200,
+      "event": "haco_detection",
+      "key_data": {
+        "intent_to_speak": true,
+        "merchant_floor": true,
+        "energy_db": 11.5
+      }
+    },
+    {
+      "t": 1200,
+      "event": "turn_state_update",
+      "key_data": {
+        "turn_state": "MERCHANT_FLOOR"
+      }
+    },
+    {
+      "t": 1360,
+      "event": "alan_yield",
+      "key_data": {
+        "delay_ms": 160
+      }
+    },
+    {
+      "t": 1800,
+      "event": "alan_speaks",
+      "key_data": {}
+    },
+    {
+      "t": 2100,
+      "event": "human_speech_start",
+      "key_data": {
+        "energy_db": 13.0,
+        "transcript": "Yes, that!"
+      }
+    },
+    {
+      "t": 2100,
+      "event": "haco_detection",
+      "key_data": {
+        "intent_to_speak": true,
+        "merchant_floor": true,
+        "energy_db": 13.0
+      }
+    },
+    {
+      "t": 2100,
+      "event": "turn_state_update",
+      "key_data": {
+        "turn_state": "MERCHANT_FLOOR"
+      }
+    },
+    {
+      "t": 2260,
+      "event": "alan_yield",
+      "key_data": {
+        "delay_ms": 160
+      }
+    }
+  ],
+  "trace_count": 15
+}

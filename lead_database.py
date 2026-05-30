@@ -176,7 +176,7 @@ class LeadDB:
                         SELECT * FROM leads 
                         WHERE do_not_call = 0 
                           AND attempts < max_attempts
-                          AND outcome NOT IN ('sale', 'not_interested', 'invalid_number')
+                          AND outcome NOT IN ('sale', 'not_interested', 'invalid_number', 'paused_for_rse')
                           AND (next_attempt IS NULL OR next_attempt <= ?)
                           AND phone_number IS NOT NULL AND TRIM(phone_number) != ''
                         ORDER BY 
@@ -208,7 +208,7 @@ class LeadDB:
                 SELECT * FROM leads 
                 WHERE do_not_call = 0 
                   AND attempts < max_attempts
-                  AND outcome NOT IN ('sale', 'not_interested', 'invalid_number')
+                  AND outcome NOT IN ('sale', 'not_interested', 'invalid_number', 'paused_for_rse')
                   AND (next_attempt IS NULL OR next_attempt <= ?)
                   AND phone_number IS NOT NULL AND TRIM(phone_number) != ''
                 ORDER BY 

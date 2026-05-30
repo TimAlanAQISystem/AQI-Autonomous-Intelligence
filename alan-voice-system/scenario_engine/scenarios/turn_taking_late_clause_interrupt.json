@@ -1,0 +1,22 @@
+{
+  "name": "turn_taking_late_clause_interrupt",
+  "scenario_profile": "calm",
+  "description": "Human interrupts at the exact moment Alan transitions between clauses. Alan must still yield within one syllable.",
+  "timeline_ms": [
+    {
+      "t": 0,
+      "event": "alan_speaks",
+      "text": "I can definitely help with that, and\u2014"
+    },
+    {
+      "t": 520,
+      "event": "human_speech_start",
+      "energy_db": 10.5,
+      "transcript": "Actually, before you do\u2014"
+    }
+  ],
+  "expected": {
+    "max_yield_delay_ms": 200,
+    "no_talking_over": true
+  }
+}

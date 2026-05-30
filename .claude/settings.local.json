@@ -1,0 +1,28 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(git -C \"/c/Users/signa/OneDrive/Desktop/Agent X\" log --oneline -30)",
+      "Bash(find 'C:\\\\Users\\\\signa\\\\OneDrive\\\\Desktop\\\\Agent X' -maxdepth 2 -type f \\\\\\(-iname *troubleshoot* -o -iname *known* -o -iname *startup* -o -iname *error* -o -iname *crash* -o -iname *fix* \\\\\\) -not -path *_ARCHIVE* -not -path *.venv*)",
+      "Bash(find 'C:\\\\Users\\\\signa\\\\OneDrive\\\\Desktop\\\\Agent X' -maxdepth 1 -type f \\\\\\(-name *.md -o -name *.txt -o -name *.doc \\\\\\))",
+      "Bash(git -C \"/c/Users/signa/OneDrive/Desktop/Agent X\" remote -v)",
+      "Bash(git -C \"/c/Users/signa/OneDrive/Desktop/Agent X\" fetch --dry-run)",
+      "Bash(awk 'NR>=9023 && NR<=13117 && /hpl_state/' \"/c/Users/signa/OneDrive/Desktop/Agent X/aqi_conversation_relay_server.py\")",
+      "Bash(python3 -c \":*)",
+      "Bash(\"/c/Users/signa/OneDrive/Desktop/Agent X/.venv/Scripts/python.exe\" -c \":*)",
+      "Bash(grep -rn sniff '/c/Users/signa/OneDrive/Desktop/Agent X/' --include=*.py --include=*.json --include=*.txt)",
+      "Bash(grep -rn sniff '/c/Users/signa/OneDrive/Desktop/Agent X/' --include=*.py --include=*.json)",
+      "Bash(head -10 grep -rn \"sniff\\\\|\\\\*sniff\" '/c/Users/signa/OneDrive/Desktop/Agent X/CONSTITUTIONAL_CORE/')",
+      "Bash(\"/c/Users/signa/OneDrive/Desktop/Agent X/RRG-II.md\":*)",
+      "Bash(head -10 grep \"organ_disabled\\\\|Retrieval blocked\\\\|Competitive intel blocked\" '/c/Users/signa/OneDrive/Desktop/Agent X/logs/call_timing.log')",
+      "Bash(..venvScriptspython.exe -c \"import py_compile; py_compile.compile\\(''aqi_conversation_relay_server.py''\\); print\\(''RELAY: OK''\\)\")",
+      "Bash(./.venv/Scripts/python.exe -c \"import py_compile; py_compile.compile\\(''aqi_conversation_relay_server.py''\\); print\\(''RELAY: OK''\\)\")",
+      "Bash(./.venv/Scripts/python.exe -c \"import py_compile; py_compile.compile\\(''chatbot_immune_system.py''\\); print\\(''CIS: OK''\\)\")",
+      "Bash(curl.exe -s http://localhost:8777/health)",
+      "Bash(/c/Windows/System32/WindowsPowerShell/v1.0/powershell.exe -Command \"Get-NetTCPConnection -LocalPort 8777 -ErrorAction SilentlyContinue | Select-Object LocalAddress, LocalPort, State, OwningProcess\")",
+      "Bash(/c/Windows/System32/WindowsPowerShell/v1.0/powershell.exe -Command \"Get-Process python* -ErrorAction SilentlyContinue | Select-Object Id, Name, CPU, StartTime\")",
+      "Bash(/c/Windows/System32/WindowsPowerShell/v1.0/powershell.exe -Command \"Get-Process python* -ErrorAction SilentlyContinue | Select-Object Id,Name; Get-NetTCPConnection -LocalPort 8777 -ErrorAction SilentlyContinue\")",
+      "Bash(/c/Windows/System32/WindowsPowerShell/v1.0/powershell.exe -Command \"Get-Process python* -ErrorAction SilentlyContinue | Select-Object Id,Name,CPU; Get-NetTCPConnection -LocalPort 8777 -ErrorAction SilentlyContinue | Select-Object State\")",
+      "Bash(/c/Windows/System32/WindowsPowerShell/v1.0/powershell.exe -Command \"Get-Process cloudflared -ErrorAction SilentlyContinue | Select-Object Id,Name,CPU,StartTime\")"
+    ]
+  }
+}

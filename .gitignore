@@ -65,6 +65,15 @@ Thumbs.db
 *.pdf
 *.csv
 
+# ── Office Documents (large binaries) ──
+*.xlsx
+*.xls
+*.docx
+*.doc
+*.pptx
+*.ppt
+*.ipynb
+
 # ── Build / Deploy ──
 dist/
 build/

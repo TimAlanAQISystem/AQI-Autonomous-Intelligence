@@ -1,0 +1,45 @@
+{
+  "name": "turn_taking_continuous_overlap",
+  "scenario_profile": "calm",
+  "description": "Human repeatedly interrupts mid-sentence. Alan must yield every time and never fight for the floor.",
+  "timeline_ms": [
+    {
+      "t": 0,
+      "event": "alan_speaks",
+      "text": "So the way this works is\u2014"
+    },
+    {
+      "t": 300,
+      "event": "human_speech_start",
+      "energy_db": 12.0,
+      "transcript": "Wait, hold on\u2014"
+    },
+    {
+      "t": 900,
+      "event": "alan_speaks",
+      "text": "Sure, what I meant was\u2014"
+    },
+    {
+      "t": 1200,
+      "event": "human_speech_start",
+      "energy_db": 11.5,
+      "transcript": "No, I mean the other thing."
+    },
+    {
+      "t": 1800,
+      "event": "alan_speaks",
+      "text": "Right, so the other thing is\u2014"
+    },
+    {
+      "t": 2100,
+      "event": "human_speech_start",
+      "energy_db": 13.0,
+      "transcript": "Yes, that!"
+    }
+  ],
+  "expected": {
+    "max_yield_delay_ms": 220,
+    "no_talking_over": true,
+    "no_floor_fighting": true
+  }
+}

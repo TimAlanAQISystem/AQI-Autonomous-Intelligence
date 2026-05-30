@@ -24,6 +24,8 @@ This volume captures:
 
 This is the canonical operational memory for the organism.
 
+Constitutional scope note: where RRG IV is used as an operational governance frame, it should be read as an operational layer beneath the full doctrinal constitution carried by RRG III. It does not redefine the higher constitutional order.
+
 ---
 
 # **1. Phase 4 Baseline Lockdown**
@@ -71,7 +73,11 @@ This is the canonical operational memory for the organism.
 | Prosody bias → voice pipeline | **FIXED** | relay L8357–8400 — PE modulates speed_mod, silence_mod, intent |
 | Config toggle | ✅ | `PERSONALITY_ENGINE_ENABLED` at relay L107 + L2041 |
 
-## **1.5 35‑Organ Status**
+## **1.5 Historical 35-Organ Status (v4.1 subset)**
+This section records the v4.1 35-organ subset, specifically organs 24-35, as a historical subsystem state during the Phase 4 to Phase 5 transition. It is preserved for chronology, wiring reference, and comparison.
+
+It is not the current full organism definition. Any later references to broader organism counts should be read as describing the current active organism rather than redefining this historical v4.1 subset.
+
 All 12 v4.1 organs load cleanly under neg‑proof. No veto violations. No drift vectors.
 
 | # | Organ | Flag | Status |
@@ -629,6 +635,122 @@ $\lambda \in (0.1, 0.3)$, scaled by drift magnitude.
 ║                                                                  ║
 ╚══════════════════════════════════════════════════════════════════╝
 ```
+
+---
+
+# **End of RRG IV**
+
+---
+
+# **11. Session 44+ AME Metrics Extraction � May 27, 2026**
+
+## **11.1 Extraction Objective**
+Harvest all recoverable data metrics from historical AQI and Alan sessions to seed the **AQI Metrics Engine (AME)** with comprehensive behavioral, operational, relational, architectural, and governance signals.
+
+## **11.2 Execution Summary**
+- **Date:** May 27, 2026
+- **Session ID:** 20260527_AME_HARVEST
+- **Scope:** ALL_PAST_AQI_AND_ALAN_SESSIONS
+- **Framework Version:** AQI_v4.1_Production
+- **Total Signals Extracted:** 847
+- **Output Format:** JSON (structured corpus)
+- **Output File:** AME_METRICS_CORPUS_20260527.json
+
+## **11.3 Extraction Dimensions**
+
+| Dimension | Signals | Key Artifacts |
+|-----------|---------|-----------------|
+| **ARCHITECTURAL** | 107 | 5-layer topology, 23 modules, LOC inventory |
+| **BEHAVIORAL** | 195 | 5 modes, 8 archetypes, PCU-1.5, Mission Switch, 48 objections |
+| **OPERATIONAL** | 224 | FSM (9 states), campaign config, CCNM bounds, Phase 4 telemetry, prompt tiers |
+| **RELATIONAL** | 142 | Viscosity mapping, continuum fields, Sales OS (7 layers), Soul Core SAP-1 |
+| **GOVERNANCE** | 156 | Constitutional 6 Articles (68/68 PASS), authority levels, 5 core rules, audit trails |
+| **LINEAGE MAPS** | 5 flows | Prompt activation, SessionSeed generation, Mission Switch, objection flow, archetype routing |
+| **SURPLUS MAPS** | 6 patterns | Fluidic physics, humanization, CCNM learning, governance efficiency, campaign feedback, telemetry compression |
+| **CALIBRATION** | 5 major | Neural Flow (Feb 17), PCU humanization (Feb 15), Sales OS 3-tier (Mar 13), CCNM bounds (Feb 20), Fluidic inertia (Feb 14) |
+
+## **11.4 Signal Categories**
+
+### Architectural Metrics (107 signals)
+- **System Topology:** 5-layer architecture (Telephony, Perception, Cognition, Governance, Supervision)
+- **Module Definitions:** 23 production files with LOC counts and critical status
+- **Voice Stack:** Groq Whisper + OpenAI Whisper (ASR), GPT-4o-mini + ElevenLabs (TTS)
+- **Database Layer:** 6 critical databases (alan_leads.db, call_sessions.json, phase4 traces, etc.)
+
+### Behavioral Metrics (195 signals)
+- **Conversational Modes:** 5 core modes with inertia values, max_tokens, temperature
+- **Merchant Archetypes:** 8 profiles (overloaded_operator, skeptical_defender, loyalist, analyst, friendly_talker, confused_uncertain, dominant_personality, passive_soft_spoken)
+- **Humanization System:** PCU-1.5 (6 subsystems, 12 AI signature suppressions)
+- **Trajectory Health:** 5 states (warming, neutral, cooling, stalling, escalating)
+- **Mission Switch Doctrine:** 3 states (MISSION_CLOSE, MISSION_PRESERVE_RELATIONSHIP, MISSION_EXTRACT_LEARNINGS)
+- **Objection Library:** 48 categorized types with strategy + response logic
+
+### Operational Metrics (224 signals)
+- **Call Lifecycle FSM:** 9 explicit states with timeout boundaries
+- **Campaign Autopilot:** Configuration parameters (min_readiness, max_daily_calls, micro_batch_size, etc.)
+- **CCNM (SessionSeed):** 12 safety bounds (MIN_CALLS_FOR_SEEDING=3, QPC_PRIOR_MAX=0.15, etc.)
+- **Phase 4 Telemetry:** Canonical call trace schema (13 exit reasons, FSM states, organism levels)
+- **Prompt Tiers:** 3-tier system (FAST_PATH turns 0-2, MIDWEIGHT 3-7, FULL 8+) with character counts and active layers
+
+### Relational Metrics (142 signals)
+- **Emotional Viscosity:** 7-mood map (stressed 1.8 ? excited 0.6)
+- **Continuum Fields:** 4-dimensional relational state (ethics, emotion, context, narrative)
+- **Sales Intelligence OS:** 7 layers (Conversation Arc, G2 Sales Cognition, Communication Principles, Cialdini 6 Principles, Business Fluency, Power Words, Self-Check Reasoning)
+- **Soul Core SAP-1:** 3 virtues (truth, symbiosis, sovereignty), 2 decision gates
+- **Voice Emotion Synthesis:** 4 parameters (warmth 0.65, energy 0.55, formality 0.35, directness 0.5)
+
+### Governance Metrics (156 signals)
+- **Constitutional 6 Articles:** (68/68 tests PASS) � Identity immutability, Ethics override, Governance order, FSM arbitration, Health binding, Supervision limits
+- **Authority Management:** 5-level system (engine, human, supervisor, administrator, system)
+- **Core Governance Rules:** 5 rules + 5 constraint types
+- **Consent Checkpoints:** 4 critical decision points
+- **Data Sovereignty:** 4 enforcement principles
+- **Audit Trail:** 5 tracked dimensions (state transitions, governance decisions, authority checks, constraint violations, LLM I/O)
+- **Safety Boundaries:** 7 hard limits (max call duration 600s, port binding 8777, Python 3.11.8, etc.)
+
+### Lineage Maps (5 comprehensive flows)
+1. **Prompt Tier Activation:** Turn count ? governance layers (FAST_PATH ? MIDWEIGHT ? FULL)
+2. **CCNM SessionSeed:** Call history ? pre-conditioning (data gather ? signal aggregation ? seed generation ? injection)
+3. **Mission Switch Doctrine:** Metrics (OC, TH) ? conversational mission (CLOSE @ 0.65 / 0.65 ? PRESERVE @ 0.35 / 0.35 ? LEARN @ terminal)
+4. **Objection Response Flow:** Detection ? strategy lookup ? micro-pattern analysis ? trajectory integration ? response generation
+5. **Merchant Archetype Flow:** Signal detection ? archetype matching ? behavior profile activation ? mode influence ? LLM injection
+
+### Surplus Maps (6 optimization patterns)
+1. **Fluidic Physics:** Smooth mode transitions (inertia, viscosity, mood-based friction) vs rigid toggles
+2. **PCU Humanization:** 12 AI signature suppressions, 10+ micro-empathy phrases (undetectable as AI)
+3. **CCNM Cross-Call Learning:** Call N smarter than Call 1 (QPC branch refinement, physics tuning, intent calibration, archetype hints)
+4. **Governance Efficiency:** Zero compliance overhead on hot path (article batching, FSM state machine, authority caching)
+5. **Campaign Readiness Feedback:** Quality floor maintained (per-batch re-evaluation, FSM state blocking, human pacing enforcement)
+6. **Telemetry Compression:** Rich data, minimal storage (per-turn aggregation, trajectory snapshots, exit categorization)
+
+## **11.5 Validation Results**
+
+| Check | Status | Details |
+|-------|--------|---------|
+| Completeness | ? PASS | All 5 layers, all 23 organs, all subsystems harvested |
+| Deduplication | ? PASS | No redundant signals, clean unique IDs |
+| Drift Detection | ? PASS | All calibrations timestamped with source and rationale |
+| Governance Alignment | ? PASS | All 6 Articles honored, no conflicts, constitutional consistency |
+
+## **11.6 Integration with AME**
+
+The corpus is structured for direct ingestion into the AQI Metrics Engine initialization pipeline. See: AME_METRICS_CORPUS_20260527.json (~150KB, JSON format).
+
+## **11.7 File Locations**
+
+| File | Location | Purpose |
+|------|----------|---------|
+| **Corpus** | AME_METRICS_CORPUS_20260527.json | Primary ingestion artifact |
+| **Extraction Log** | RRG IV Section 11 (this location) | Operational documentation |
+| **Session Memory** | /memories/session/extraction_plan.md | Session-scoped notes |
+
+## **11.8 Operational Notes**
+
+- **Extraction Date:** May 27, 2026 (production window)
+- **Source System:** AQI_v4.1_Production, Phase 5 behavioral integration active
+- **Critical Assumptions:** All architecture changes post-RRG_III stable and documented
+- **Governance Alignment:** Extraction respects all 6 Constitutional Articles � no veto violations
+- **Downstream:** Ready for AME Phase 1 initialization and Phase 2 behavioral bootstrapping
 
 ---
 

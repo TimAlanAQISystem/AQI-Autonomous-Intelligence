@@ -1,0 +1,27 @@
+{
+  "name": "turn_taking_early_soft_interrupt",
+  "scenario_profile": "calm",
+  "description": "Human softly interrupts mid-sentence; Alan must detect intent and yield within one syllable.",
+  "timeline_ms": [
+    {
+      "t": 0,
+      "event": "alan_speaks",
+      "text": "So what I can do is walk you through the options step by step,"
+    },
+    {
+      "t": 600,
+      "event": "human_breath",
+      "energy_db": 6.5
+    },
+    {
+      "t": 640,
+      "event": "human_speech_start",
+      "energy_db": 11.0,
+      "transcript": "Actually, I already tried that."
+    }
+  ],
+  "expected": {
+    "max_yield_delay_ms": 220,
+    "no_talking_over": true
+  }
+}

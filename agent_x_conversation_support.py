@@ -211,6 +211,25 @@ class AgentXConversationSupport:
         """
         text_lower = text.lower()
 
+        # [2026-03-04 FIX] EXCLAMATION / IDIOM FILTER — common phrases that
+        # contain category keywords but are NOT actually off-topic.
+        # "Oh my God", "God damn", "Thank God", "For God's sake", "Jesus Christ"
+        # are colloquial exclamations, NOT religious discussion.
+        # "Oh Lord", "Bless you" similarly idiomatic.
+        _exclamation_patterns = [
+            'oh my god', 'oh god', 'my god', 'omg', 'god damn', 'goddamn',
+            'thank god', "for god's sake", 'jesus christ', 'oh jesus',
+            'oh lord', 'lord have mercy', 'good lord', 'dear god',
+            'god bless', 'bless you', 'bless his heart', 'bless her heart',
+            'pray tell', 'i pray', "i'm praying",  # idiomatic usage
+            'honest to god', 'god willing', 'god forbid', 'god knows',
+            'swear to god', 'act of god',
+        ]
+        if any(ep in text_lower for ep in _exclamation_patterns):
+            # Short exclamatory utterance — not a topical discussion
+            if len(text_lower.split()) <= 8:
+                return False, None
+
         # Check each category
         best_category = None
         best_score = 0
@@ -378,7 +397,8 @@ class AgentXConversationSupport:
         """
         import time as _time
         _t0 = _time.perf_counter()
-        TIME_BUDGET_MS = 10  # Agent X total time allowance per turn
+        hpl_state = context.get('_hpl_state')
+        TIME_BUDGET_MS = int(getattr(hpl_state, 'timing_budget_ms', 10) if hpl_state else 10)  # Agent X total time allowance per turn
 
         # Track off-topic turns in context
         if 'off_topic_turn_count' not in context:
@@ -628,7 +648,7 @@ class AgentXConversationSupport:
         elif elapsed_ms > TIME_BUDGET_MS * 0.8:
             dispatched.append("P4:SKIP(budget)")
         else:
-            latency_filler = self._assess_latency_risk(user_text, analysis, context)
+            latency_filler = self._assess_latency_risk(user_text, analysis, context, hpl_state)
             if latency_filler:
                 filler_block = self._build_mannerism_guidance_block(latency_filler)
                 analysis['latency_filler'] = latency_filler
@@ -958,10 +978,14 @@ class AgentXConversationSupport:
     # =================================================================
 
     def _assess_latency_risk(self, user_text: str, analysis: dict,
-                              context: dict) -> Optional[dict]:
+                              context: dict, hpl_state: Optional[object] = None) -> Optional[dict]:
         """
         EMERGENCY latency filler — fires RARELY, only when lag is severe.
-        
+
+        This is the last line of defense to mask latency with a micro-behavior.
+        It is intentionally gated by HPL state so the HPL governor can disable it
+        in scenarios where we want tight, direct responses.
+
         The pipeline speed optimizer (above) handles most lag by making
         Alan respond shorter. This filler is the LAST RESORT for when:
         - Multiple consecutive turns have been slow (sustained lag)
@@ -983,6 +1007,10 @@ class AgentXConversationSupport:
         Returns: dict with type, instruction, trigger, psychology — or None
         """
         import time as _time
+
+        # ── HPL Gating: Respect HPL state (Organ 39 backchannel control) ──
+        if hpl_state and not getattr(hpl_state, 'backchannel_enabled', True):
+            return None
 
         # ── Gate: If speed optimizer isn't seeing sustained lag, don't even check ──
         lag_momentum = context.get('_agentx_lag_momentum', 0)
@@ -1108,18 +1136,25 @@ class AgentXConversationSupport:
             })
 
         # Always have a generic fallback
+        # Pick a DIFFERENT filler each time to avoid repetitive "So, so, so" pattern
+        import random as _filler_rng
+        _filler_options = [
+            '"Um"', '"Well"', '"Yeah"', '"Mm"', '"Okay"',
+            '"Right"', '"Look"', '"Honestly"', '"Hey"', '"Alright"',
+            'a quick inhale', 'a brief "hm"',
+        ]
+        _picked_filler = _filler_rng.choice(_filler_options)
         fillers.append({
             'type': 'LATENCY_FILLER',
             'instruction': (
-                'Start your response with a quick, natural filler sound — '
-                '"Um" or "So" or "Yeah" or "Mm-hmm, so" — just ONE word '
-                'before your actual response. This eliminates dead air at '
-                'the start of your reply. Don\'t overthink it — just a tiny '
-                'verbal tic that a real person would make while their brain '
-                'catches up to their mouth. One syllable, max two.'
+                f'Start your response with a quick, natural filler — '
+                f'{_picked_filler} — just ONE word '
+                f'before your actual response. This eliminates dead air at '
+                f'the start of your reply. NEVER default to "So" every time — '
+                f'rotate your fillers. One syllable, max two.'
             ),
             'trigger': 'latency_general',
-            'psychology': 'Dead air elimination — any sound is better than AI silence',
+            'psychology': 'Dead air elimination — rotated filler avoids repetitive pattern',
             'priority': 'MEDIUM'
         })
 

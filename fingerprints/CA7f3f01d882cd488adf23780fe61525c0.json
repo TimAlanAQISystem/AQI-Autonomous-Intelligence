@@ -1,0 +1,38 @@
+{
+  "call_id": "CA7f3f01d882cd488adf23780fe61525c0",
+  "timestamp_start": 1773436018.3698168,
+  "timestamp_end": 1773436226.3303685,
+  "duration_seconds": 207.960551738739,
+  "merchant_role": "unknown",
+  "pace": {
+    "avg_merchant_wpm": 7.8,
+    "avg_alan_wpm": 3.8,
+    "interrupt_rate_per_minute": 0.0,
+    "avg_pause_ms_merchant": null,
+    "avg_pause_ms_alan": null
+  },
+  "friction": {
+    "objection_count": 0,
+    "hesitation_events": 1,
+    "clarification_requests_count": 0,
+    "dropout_risk_score": 0.03
+  },
+  "energy": {
+    "merchant_energy_initial": null,
+    "merchant_energy_final": null,
+    "alan_energy_profile": "medium"
+  },
+  "vocabulary": {
+    "formality_level": "neutral",
+    "technicality_level": "low",
+    "vocab_diversity_score": 1.0
+  },
+  "modulation": {
+    "pace_modulation_range_pct": {
+      "min": 0.0,
+      "max": 0.0
+    },
+    "energy_modulation_events_count": 0,
+    "vocab_style_switches_count": 0
+  }
+}

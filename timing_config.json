@@ -10,25 +10,25 @@
   "voice_pacing": {
     "_section": "How fast Alan speaks and how much he says per turn",
     "tempo_multiplier": {
-      "value": 1.06,
+      "value": 1.0,
       "min": 1.00,
       "max": 1.20,
       "unit": "multiplier",
-      "description": "Audio time-compression. 1.06 = 6% faster playback. Compounds with TTS speed."
+      "description": "Audio time-compression. [2026-03-10] Reduced 1.06→1.0 (disabled). Compound speed was making Alan 14-19% faster than natural speech — a major AI tell. Real sales reps on cold calls speak at natural or slightly BELOW natural pace. Authority comes from being unhurried."
     },
     "tts_default_speed": {
-      "value": 1.12,
+      "value": 1.0,
       "min": 0.90,
       "max": 1.30,
       "unit": "multiplier",
-      "description": "Default TTS speed when no prosody intent overrides. 1.12 = 12% faster than baseline."
+      "description": "Default TTS speed when no prosody intent overrides. [2026-03-10] Reduced 1.12→1.0 (natural pace). Was making Alan sound 12% faster than any human talks on the phone."
     },
     "max_sentences": {
-      "value": 3,
+      "value": 2,
       "min": 1,
       "max": 8,
       "unit": "count",
-      "description": "Maximum sentences per turn. Was 5 (over-response in Batch 1), now 3. Prompt says 2-3 ideal."
+      "description": "Maximum sentences per turn. Was 5→3→2. Metrics: median TTS=3000ms at 3 sentences, target <1500ms. Gong.io: 77% more speaker switches on successful calls = shorter turns win. Phone calls demand brevity — 2 sentences ≈ 3-4s of speech."
     },
     "question_cap_per_turn": {
       "value": 1,
@@ -40,19 +40,19 @@
   },
 
   "prosody_speed_map": {
-    "_section": "Per-intent TTS speed overrides. Each intent gets its own speaking pace.",
-    "neutral":             1.12,
-    "empathetic_reflect":  1.02,
-    "reassure_stability":  1.06,
-    "confident_recommend": 1.08,
-    "curious_probe":       1.16,
-    "casual_rapport":      1.12,
-    "micro_hesitate":      1.10,
-    "objection_handling":  1.06,
-    "formal_respectful":   1.08,
-    "turn_yield":          1.08,
-    "repair_clarify":      1.08,
-    "closing_momentum":    1.14
+    "_section": "Per-intent TTS speed overrides. [2026-03-10] HUMANIZATION PASS: All speeds reduced to natural human range (0.94-1.03). Previous compound speeds (TTS × tempo 1.06) ranged 1.08-1.17 — 8-17% faster than natural speech, a major AI tell. Real cold-call reps speak at or slightly below natural pace. Authority = unhurried. Empathy = slower. Closing = deliberate. Now tempo_multiplier=1.0, so these values ARE the final speed.",
+    "neutral":             1.0,
+    "empathetic_reflect":  0.94,
+    "reassure_stability":  0.97,
+    "confident_recommend": 1.0,
+    "curious_probe":       1.03,
+    "casual_rapport":      1.02,
+    "micro_hesitate":      0.95,
+    "objection_handling":  0.96,
+    "formal_respectful":   1.0,
+    "turn_yield":          0.98,
+    "repair_clarify":      1.0,
+    "closing_momentum":    0.94
   },
 
   "turn_timing": {
@@ -69,11 +69,11 @@
   "llm_parameters": {
     "_section": "LLM generation parameters — controls response length and creativity",
     "relay_max_tokens": {
-      "value": 100,
+      "value": 80,
       "min": 60,
       "max": 200,
       "unit": "tokens",
-      "description": "Max tokens for relay LLM calls. Was 80→60→45→100 (P0 Fix: 45 caused mid-sentence truncation on early turns, breaking rapport and identity). 100 = ~3 sentences, enough for any business answer without truncation."
+      "description": "Max tokens for relay LLM calls. Was 80→60→45→100→80. Metrics: 100 tokens → median 3 sentences → 3000ms TTS. 80 tokens ≈ 2 sentences ≈ 1500ms TTS. Enough for any complete business answer without monologuing."
     },
     "direct_max_tokens": {
       "value": 150,
@@ -83,18 +83,18 @@
       "description": "Max tokens for Alan direct LLM calls (fuller responses)."
     },
     "temperature": {
-      "value": 0.5,
+      "value": 0.55,
       "min": 0.1,
       "max": 1.0,
       "unit": "float",
-      "description": "LLM temperature for relay calls. Lower = more focused, higher = more creative."
+      "description": "LLM temperature for relay calls. [2026-03-10 CALL-9] Lowered 0.65→0.55. 0.65 was producing too much variation — repetitive/doubled word patterns in output. 0.55 balances variety with consistency. Still above 0.5 for natural variation."
     },
     "frequency_penalty": {
-      "value": 0.5,
+      "value": 0.7,
       "min": 0.0,
       "max": 1.5,
       "unit": "float",
-      "description": "LLM frequency penalty. Reduces repetitive phrasing."
+      "description": "LLM frequency penalty. [2026-03-10] Raised 0.5→0.7 to push more vocabulary diversity. Forces the LLM to use different words and phrasings turn to turn, reducing the robotic pattern of repeating the same constructions."
     }
   },
 
@@ -128,6 +128,24 @@
     }
   },
 
+  "goa": {
+    "_section": "[GOA-1.0] Greeting Open Architecture — Segmented interruptible greeting timing. Controls the listen gate between greeting segment 1 (identity) and segment 2 (ask). During the gate, VAD listens for human speech to enable immediate dialogue entry instead of broadcasting a monologue.",
+    "listen_gate_duration_s": {
+      "value": 1.5,
+      "min": 0.5,
+      "max": 3.0,
+      "unit": "seconds",
+      "description": "How long to listen for human speech after segment 1 before playing segment 2. Must accommodate echo cooldown (0.3s) + human reaction time (~0.5s) + VAD detection (~0.06s). 1.5s gives ~1.2s of active listening after echo cooldown. Too short = always plays segment 2. Too long = awkward silence."
+    },
+    "echo_cooldown_during_gate_s": {
+      "value": 0.3,
+      "min": 0.1,
+      "max": 0.8,
+      "unit": "seconds",
+      "description": "Echo cooldown override during GOA listen gate. Segment 1 is short cached audio (~1.5s) with minimal Twilio buffer tail (~200-400ms). Normal 0.8s cooldown is excessive for this context. 0.3s rejects echo while preserving the gate's listening window."
+    }
+  },
+
   "health_monitoring": {
     "_section": "System health check intervals",
     "health_check_interval": {
@@ -149,29 +167,29 @@
   "breath_patterns": {
     "_section": "Human breath injection timing for natural speech cadence",
     "patterns": [
-      {"type": "inhale",  "duration_ms": 100, "peak_amp": 0.008},
-      {"type": "inhale",  "duration_ms": 130, "peak_amp": 0.010},
-      {"type": "inhale",  "duration_ms": 80,  "peak_amp": 0.006},
-      {"type": "exhale",  "duration_ms": 140, "peak_amp": 0.007},
-      {"type": "exhale",  "duration_ms": 110, "peak_amp": 0.009}
+      {"type": "inhale",  "duration_ms": 120, "peak_amp": 0.018},
+      {"type": "inhale",  "duration_ms": 150, "peak_amp": 0.022},
+      {"type": "inhale",  "duration_ms": 90,  "peak_amp": 0.014},
+      {"type": "exhale",  "duration_ms": 160, "peak_amp": 0.016},
+      {"type": "exhale",  "duration_ms": 130, "peak_amp": 0.020}
     ]
   },
 
   "prosody_silence_frames": {
-    "_section": "Inter-sentence silence frames per prosody intent. 1 frame ≈ 20ms. Research-backed: Stivers et al. 2009 (mean gap +208ms), Kendrick 2015 (trouble threshold 700ms), Gong.io (2M sales calls — top reps pause longer after objections).",
+    "_section": "Inter-sentence silence frames per prosody intent. 1 frame ≈ 20ms. [2026-03-13 CALL-6] REVERTED all tightenings from Call 5 — Call 6 regression: Alan interrupted Tim, lost dialog coherence. Restoring proven values. closing_momentum kept at 8 (Gong: closers pause for weight). objection_handling kept at 13 (empathy needs space).",
     "frame_duration_ms": 20,
-    "neutral":             10,
-    "empathetic_reflect":  14,
-    "reassure_stability":  12,
-    "confident_recommend":  8,
-    "curious_probe":        7,
-    "casual_rapport":       5,
-    "micro_hesitate":       6,
-    "objection_handling":  15,
-    "formal_respectful":    7,
-    "turn_yield":           4,
-    "repair_clarify":      10,
-    "closing_momentum":     5
+    "neutral":             8,
+    "empathetic_reflect":  12,
+    "reassure_stability":  10,
+    "confident_recommend":  7,
+    "curious_probe":       10,
+    "casual_rapport":       4,
+    "micro_hesitate":       5,
+    "objection_handling":  13,
+    "formal_respectful":    6,
+    "turn_yield":           3,
+    "repair_clarify":       7,
+    "closing_momentum":     8
   },
 
   "silence_thresholds": {

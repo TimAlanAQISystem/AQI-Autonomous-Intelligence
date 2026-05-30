@@ -1,0 +1,72 @@
+{
+  "timestamp": "20260305_052528",
+  "scenario": "turn_taking_early_soft_interrupt",
+  "profile": "calm",
+  "description": "Human softly interrupts mid-sentence; Alan must detect intent and yield within one syllable.",
+  "result": {
+    "passed": true,
+    "violations": []
+  },
+  "trace_summary": [
+    {
+      "t": 0,
+      "event": "alan_start_speaking",
+      "key_data": {}
+    },
+    {
+      "t": 600,
+      "event": "human_breath",
+      "key_data": {
+        "energy_db": 6.5
+      }
+    },
+    {
+      "t": 600,
+      "event": "haco_detection",
+      "key_data": {
+        "intent_to_speak": false,
+        "merchant_floor": false,
+        "energy_db": 6.5
+      }
+    },
+    {
+      "t": 600,
+      "event": "turn_state_update",
+      "key_data": {
+        "turn_state": "ALAN_FLOOR"
+      }
+    },
+    {
+      "t": 640,
+      "event": "human_speech_start",
+      "key_data": {
+        "energy_db": 11.0,
+        "transcript": "Actually, I already tried that."
+      }
+    },
+    {
+      "t": 640,
+      "event": "haco_detection",
+      "key_data": {
+        "intent_to_speak": true,
+        "merchant_floor": true,
+        "energy_db": 11.0
+      }
+    },
+    {
+      "t": 640,
+      "event": "turn_state_update",
+      "key_data": {
+        "turn_state": "MERCHANT_FLOOR"
+      }
+    },
+    {
+      "t": 800,
+      "event": "alan_yield",
+      "key_data": {
+        "delay_ms": 160
+      }
+    }
+  ],
+  "trace_count": 8
+}

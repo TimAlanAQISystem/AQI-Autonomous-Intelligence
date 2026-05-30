@@ -1,0 +1,49 @@
+{
+  "timestamp": "20260305_072006",
+  "scenario": "turn_taking_late_clause_interrupt",
+  "profile": "calm",
+  "description": "Human interrupts at the exact moment Alan transitions between clauses. Alan must still yield within one syllable.",
+  "result": {
+    "passed": true,
+    "violations": []
+  },
+  "trace_summary": [
+    {
+      "t": 0,
+      "event": "alan_start_speaking",
+      "key_data": {}
+    },
+    {
+      "t": 520,
+      "event": "human_speech_start",
+      "key_data": {
+        "energy_db": 10.5,
+        "transcript": "Actually, before you do\u2014"
+      }
+    },
+    {
+      "t": 520,
+      "event": "haco_detection",
+      "key_data": {
+        "intent_to_speak": true,
+        "merchant_floor": true,
+        "energy_db": 10.5
+      }
+    },
+    {
+      "t": 520,
+      "event": "turn_state_update",
+      "key_data": {
+        "turn_state": "MERCHANT_FLOOR"
+      }
+    },
+    {
+      "t": 680,
+      "event": "alan_yield",
+      "key_data": {
+        "delay_ms": 160
+      }
+    }
+  ],
+  "trace_count": 5
+}

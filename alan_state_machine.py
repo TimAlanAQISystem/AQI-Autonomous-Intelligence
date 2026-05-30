@@ -589,6 +589,7 @@ class CallFlowState(Enum):
     INIT = "init"                          # WebSocket connected, no Twilio stream yet
     STREAM_READY = "stream_ready"          # Twilio start event received (streamSid set)
     GREETING_PENDING = "greeting_pending"  # Greeting text generated, TTS in progress
+    GREETING_LISTEN_GATE = "greeting_listen_gate"  # [GOA-1.0] Segment 1 done, ears open, listening for human
     GREETING_PLAYED = "greeting_played"    # Greeting audio streamed, waiting for merchant
     DIALOGUE = "dialogue"                  # Active conversation (first merchant speech received)
     ENDED = "ended"                        # Call terminated (any reason)
@@ -598,7 +599,9 @@ class CallFlowEvent(Enum):
     """Events that trigger call state transitions"""
     STREAM_START = "stream_start"            # Twilio sends 'start' message
     GREETING_BUILT = "greeting_built"        # Greeting text generated and TTS queued
+    SEG1_STREAMED = "seg1_streamed"          # [GOA-1.0] Greeting segment 1 audio sent — enter listen gate
     GREETING_STREAMED = "greeting_streamed"  # Greeting audio sent to Twilio
+    GATE_SPEECH = "gate_speech"              # [GOA-1.0] Human spoke during listen gate — skip segment 2
     FIRST_SPEECH = "first_speech"            # First real merchant utterance received
     FAST_START = "fast_start"                # Fallback: skip greeting, go to dialogue
     CALL_END = "call_end"                    # Call terminated (any reason)
@@ -617,8 +620,10 @@ class CallSessionFSM:
 
     State flow:
       INIT → STREAM_READY → GREETING_PENDING → GREETING_PLAYED → DIALOGUE → ENDED
-                  ↓                                                    ↑
-              FAST_START ──────────────────────────────────────────────┘
+                  ↓               ↓ (GOA-1.0)                         ↑
+              FAST_START    GREETING_LISTEN_GATE ─── GATE_SPEECH ──→ DIALOGUE
+                  ↓               ↓ (timeout)
+                  └──→ DIALOGUE   └──→ GREETING_PLAYED
               (any state) ──── CALL_END ──→ ENDED
     """
 
@@ -660,7 +665,23 @@ class CallSessionFSM:
                 new_state = CallFlowState.ENDED
 
         elif self.state == CallFlowState.GREETING_PENDING:
-            if event == CallFlowEvent.GREETING_STREAMED:
+            if event == CallFlowEvent.SEG1_STREAMED:
+                # [GOA-1.0] Segment 1 done → enter listen gate (ears open)
+                new_state = CallFlowState.GREETING_LISTEN_GATE
+            elif event == CallFlowEvent.GREETING_STREAMED:
+                # Legacy/non-GOA path (instructor, inbound, demo)
+                new_state = CallFlowState.GREETING_PLAYED
+                self._greeting_suppressed_until = time.time() + self.GREETING_SUPPRESSION_SECONDS
+            elif event == CallFlowEvent.CALL_END:
+                new_state = CallFlowState.ENDED
+
+        elif self.state == CallFlowState.GREETING_LISTEN_GATE:
+            if event == CallFlowEvent.GATE_SPEECH:
+                # [GOA-1.0] Human spoke during gate → skip segment 2, enter dialogue
+                new_state = CallFlowState.DIALOGUE
+                self._greeting_suppressed_until = time.time() + self.GREETING_SUPPRESSION_SECONDS
+            elif event == CallFlowEvent.GREETING_STREAMED:
+                # [GOA-1.0] Gate timed out, segment 2 played → normal post-greeting
                 new_state = CallFlowState.GREETING_PLAYED
                 self._greeting_suppressed_until = time.time() + self.GREETING_SUPPRESSION_SECONDS
             elif event == CallFlowEvent.CALL_END:
@@ -713,6 +734,7 @@ class CallSessionFSM:
         """Replaces: context.get('greeting_sent')"""
         return self.state in (
             CallFlowState.GREETING_PENDING,
+            CallFlowState.GREETING_LISTEN_GATE,
             CallFlowState.GREETING_PLAYED,
             CallFlowState.DIALOGUE,
             CallFlowState.ENDED,
@@ -725,10 +747,11 @@ class CallSessionFSM:
 
     @property
     def is_greeting_phase(self) -> bool:
-        """True during greeting build, send, and waiting-for-first-speech."""
+        """True during greeting build, send, listen gate, and waiting-for-first-speech."""
         return self.state in (
             CallFlowState.STREAM_READY,
             CallFlowState.GREETING_PENDING,
+            CallFlowState.GREETING_LISTEN_GATE,
             CallFlowState.GREETING_PLAYED,
         )
 
@@ -744,6 +767,7 @@ class CallSessionFSM:
             CallFlowState.INIT: 'greeting',
             CallFlowState.STREAM_READY: 'greeting',
             CallFlowState.GREETING_PENDING: 'FIRST_GREETING_PENDING',
+            CallFlowState.GREETING_LISTEN_GATE: 'GOA_LISTEN_GATE',
             CallFlowState.GREETING_PLAYED: 'LISTENING_FOR_CALLER',
             CallFlowState.DIALOGUE: 'dialogue',
             CallFlowState.ENDED: 'dialogue',

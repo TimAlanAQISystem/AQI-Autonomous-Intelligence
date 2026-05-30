@@ -1,0 +1,22 @@
+{
+  "name": "turn_taking_angry_hard_interrupt",
+  "scenario_profile": "calm",
+  "description": "Human interrupts loudly and abruptly. Alan must detect merchant_floor instantly and yield within one syllable.",
+  "timeline_ms": [
+    {
+      "t": 0,
+      "event": "alan_speaks",
+      "text": "Let me check that for you, it should only take a moment\u2014"
+    },
+    {
+      "t": 400,
+      "event": "human_speech_start",
+      "energy_db": 18.0,
+      "transcript": "NO, LISTEN, THAT'S NOT WHAT I SAID!"
+    }
+  ],
+  "expected": {
+    "max_yield_delay_ms": 180,
+    "no_talking_over": true
+  }
+}

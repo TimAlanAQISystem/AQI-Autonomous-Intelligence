@@ -233,6 +233,95 @@ OBJECTIONS = {
     }
 }
 
+
+# ============================================================
+# REBUTTAL EDUCATION FRAMEWORK
+# [2026-03-06] Added per Tim's directive — Alan's sales education
+# Source: Strategic rebuttal methodology for objection handling
+# ============================================================
+
+REBUTTAL_FRAMEWORKS = {
+    "definition": (
+        "A sales rebuttal is a strategic response to a customer objection. "
+        "The purpose is NOT to argue — it's to acknowledge the concern, provide "
+        "clarity, and demonstrate value. Every objection is an opportunity to "
+        "reinforce trust and move the prospect closer to a decision."
+    ),
+
+    "why_they_matter": [
+        "Build trust — showing empathy proves you heard them, not just waited to talk",
+        "Address objections effectively — increases close rate dramatically",
+        "Highlight value — differentiate from every other rep who just dropped a rate",
+        "Maintain momentum — keeps the conversation moving without sounding defensive",
+    ],
+
+    "LAER": {
+        "name": "LAER Framework (Listen → Acknowledge → Explore → Respond)",
+        "steps": {
+            "Listen":      "Hear the FULL objection without interrupting. Let them finish completely.",
+            "Acknowledge": "Validate their concern before anything else. 'That makes sense.' 'I hear that a lot.' Never dismiss.",
+            "Explore":     "Ask an open-ended question to uncover the real root cause. 'What specifically concerns you about the timing?' 'Has that happened to you before with a processor?'",
+            "Respond":     "Answer the SPECIFIC underlying concern with evidence — examples, numbers, testimonials. Not a rehearsed pitch.",
+        },
+        "when_to_use": "Every objection. Every time. This is the foundation.",
+    },
+
+    "LEAP": {
+        "name": "LEAP Framework (Listen → Empathize → Ask → Problem Solve)",
+        "steps": {
+            "Listen":       "Let them talk. Don't just hear words — hear the emotion behind them.",
+            "Empathize":    "Reflect their concern back. 'I get it — you've been burned before and that sticks.' Not fake empathy — real acknowledgment.",
+            "Ask":          "Use a clarifying question to pin down the exact block. 'Is it the rate itself or the contract term that's the issue?'",
+            "Problem Solve":"Offer a specific, tailored solution to THAT exact block. Not a generic pitch — a direct answer to what they just told you.",
+        },
+        "when_to_use": "Emotional objections — burned before, don't trust salespeople, frustration, skepticism.",
+    },
+
+    "core_principles": [
+        "Active Listening: Understand the objection FULLY before responding — don't rush to counter",
+        "Empathy first: Acknowledge the concern. Dismissing it kills trust instantly.",
+        "Tailored response: Answer THIS person's specific objection — not a canned line. Use their words back to them.",
+        "Positive attitude: Confidence, not defensiveness. Objections = engagement = opportunity.",
+        "Open-ended questions: Dig for the root cause. 'What makes you say that?' / 'What would need to be true for this to work for you?'",
+        "Never argue: You're not debating — you're problem solving together.",
+    ],
+
+    "rebuttal_examples": {
+        "price": {
+            "objection": "It's too expensive / your rates are too high",
+            "rebuttal":  "Totally fair — our customers don't buy it because it's cheap; they buy it because it costs less than the problem it solves. Let me show you what the full cost comparison actually looks like side by side.",
+            "framework": "LAER — Acknowledge the price concern, Explore what they're currently paying, Respond with real math",
+        },
+        "timing": {
+            "objection": "Not the right time / call me later / after the season",
+            "rebuttal":  "Totally — what if we set up a light pilot that runs in the background so when the window opens, the results and savings data are already there for you to review?",
+            "framework": "LAER — Acknowledge timing, Explore when the right window is, Respond with zero-disruption path forward",
+        },
+        "competitor": {
+            "objection": "I'm happy with my current processor / already have someone",
+            "rebuttal":  "I'm glad to hear that — has anyone ever shown you an itemized breakdown of every dollar you're paying? Not just the rate — the full picture? I'll tell you right now if you're getting a fair deal. If you are, I'll tell you that and walk away.",
+            "framework": "LAER — Acknowledge satisfaction, Explore whether they've validated it, Respond with a low-risk audit offer",
+        },
+        "skepticism": {
+            "objection": "Sounds too good to be true / I've heard this before / I don't trust this",
+            "rebuttal":  "That's exactly the right reaction — I'd be skeptical too. That's why I don't ask you to take my word for it. Let's run a pilot — measurable outcome tracked over 60 days. If the numbers don't show what I said, no deal. Sound fair?",
+            "framework": "LEAP — Empathize with the skepticism, Ask what proof would look like, Problem Solve with a risk-free pilot",
+        },
+        "ready_to_think": {
+            "objection": "I need to think about it",
+            "rebuttal":  "Absolutely. Can I ask — is there something specific you're unsure about, or is it more just wanting time to process? I'd rather address what's actually holding you back than have you sitting on savings you could already have.",
+            "framework": "LEAP — Empathize, Ask the real question, Problem Solve by addressing the actual block",
+        },
+    },
+
+    "key_takeaway": (
+        "A rebuttal transforms objections into opportunities. Preparation + empathy + adaptability. "
+        "The best reps don't have perfect scripts — they have perfect listening. "
+        "Master the frameworks, know the specific examples cold, "
+        "and adapt every response to what THIS person actually said."
+    ),
+}
+
 RECOVERY_PHRASES = [
     "Yeah, I hear that a lot actually. Most people feel that way until they see the actual breakdown side by side.",
     "That makes sense. So let me ask you this — is it more the monthly fee that bugs you or the per-transaction cost?",

@@ -7,6 +7,16 @@ Voice-enabled conversational AI with Twilio integration
 import sys
 import codecs
 
+# [2026-03-16 FIX] Prevent double-import when running as __main__.
+# When launched via `python control_api_fixed.py`, Python caches this module as
+# "__main__" but NOT as "control_api_fixed". Later, when aqi_conversation_relay_server
+# does `import control_api_fixed` (line 5110, FSM bridge), Python re-imports the
+# entire file — creating a 2nd AgentAlanBusinessAI, Supreme AI, Agent X init —
+# blocking the event loop for ~6-8 seconds and killing live calls with silence.
+# Registering ourselves in sys.modules prevents the re-import.
+if __name__ == '__main__' and 'control_api_fixed' not in sys.modules:
+    sys.modules['control_api_fixed'] = sys.modules['__main__']
+
 # [FIX] Force UTF-8 for Windows Console to prevent 'charmap' crashes on Emojis
 if sys.platform == "win32":
     try:
@@ -37,8 +47,16 @@ from contextlib import asynccontextmanager
 # ── [HYPERCORN §8] Pin event loop policy BEFORE any async work ───────────
 # Prevents uvloop/winloop from hijacking the loop on import.
 # Must be set before any asyncio.get_event_loop() call.
+#
+# On Windows, Playwright relies on subprocess support that is only available
+# under the Proactor event loop. SelectorEventLoop cannot create subprocesses
+# and will raise NotImplementedError (seen during portal login).
 if sys.platform == "win32":
-    asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
+    try:
+        asyncio.set_event_loop_policy(asyncio.WindowsProactorEventLoopPolicy())
+    except Exception:
+        # Worst case: fall back to selector policy (legacy behavior).
+        asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
 else:
     asyncio.set_event_loop_policy(asyncio.DefaultEventLoopPolicy())
 from datetime import datetime
@@ -557,6 +575,73 @@ async def diagnostics():
         diag["incidents"] = [{"id": i.id, "timestamp": i.timestamp, "component": i.component, "severity": i.severity, "issue": i.issue} for i in supervisor.latest_incidents(50)]
         diag["incident_count"] = len(supervisor.incidents)
     return diag
+
+@app.get("/debug_state")
+async def debug_state():
+    """Return internal runtime state useful for GOA/pipe debugging.
+
+    Includes:
+    - Call FSM (governor state)
+    - Active conversation contexts (GOA gating / pre-gate speech)
+    - Relay subsystem status
+    - Governor lock/call status
+    """
+    now = datetime.now().isoformat()
+
+    # Governor state
+    if LAST_CALL_TS > 0:
+        time_since_last = time.time() - LAST_CALL_TS
+    else:
+        time_since_last = None
+
+    governor = {
+        "call_in_progress": CALL_IN_PROGRESS,
+        "cooldown_remaining": max(0, COOLDOWN - time_since_last) if (time_since_last is not None and not CALL_IN_PROGRESS) else 0,
+        "last_call_ts": LAST_CALL_TS,
+        "lock_locked": CALL_LOCK.locked() if CALL_LOCK else None,
+        "time_since_last_call": time_since_last,
+    }
+
+    # FSM state (shadow governor)
+    fsm_state = None
+    if CALL_FSM_AVAILABLE and call_fsm:
+        try:
+            fsm_state = call_fsm.get_state_dict()
+        except Exception as e:
+            fsm_state = {"error": str(e)}
+
+    # Relay / conversation state
+    relay_info = {
+        "relay_ready": relay_server is not None,
+        "subsystems": relay_server.subsystem_status() if relay_server and hasattr(relay_server, 'subsystem_status') else None,
+        "active_conversations": [],
+    }
+
+    if relay_server and hasattr(relay_server, 'active_conversations'):
+        for client_id, ctx in relay_server.active_conversations.items():
+            relay_info["active_conversations"].append({
+                "client_id": client_id,
+                "call_sid": ctx.get("call_sid"),
+                "streamSid": ctx.get("streamSid"),
+                "conversation_state": ctx.get("conversation_state"),
+                "first_turn_complete": ctx.get("first_turn_complete"),
+                "greeting_sent": ctx.get("greeting_sent"),
+                "goa_listen_gate_active": ctx.get("_goa_listen_gate_active"),
+                "goa_listen_event_set": bool(ctx.get("_goa_listen_event")),
+                "pre_gate_human_speech": ctx.get("_pre_gate_human_speech"),
+                "eab_env_class": ctx.get("_eab_env_class"),
+                "vad_speech_frames": ctx.get("vad_speech_frames"),
+                "audio_playing": ctx.get("audio_playing"),
+                "twilio_playback_done": ctx.get("twilio_playback_done"),
+                "last_speech_time": ctx.get("last_speech_time"),
+            })
+
+    return {
+        "server_time": now,
+        "governor": governor,
+        "call_fsm": fsm_state,
+        "relay": relay_info,
+    }
 
 # ---- TUNNEL SYNC API ----
 @app.post("/tunnel/sync")
@@ -1271,8 +1356,9 @@ async def trigger_call(request: Request):
         _early_form = await request.form()
         _early_data = dict(_early_form)
     _early_instructor = str(_early_data.get('instructor_mode', 'false')).lower() == 'true'
+    _early_calibration = str(_early_data.get('calibration_mode', 'false')).lower() == 'true'
     _early_demo = str(_early_data.get('demo_mode', '')).strip()
-    _bypass_governor = _early_instructor or bool(_early_demo)
+    _bypass_governor = _early_instructor or _early_calibration or bool(_early_demo)
     
     # 2. Check Governor (bypassed for instructor/demo calls)
     if not _bypass_governor and not can_fire_call():
@@ -1354,10 +1440,13 @@ async def trigger_call(request: Request):
                 prospect_name = data.get('name', data.get('prospect_name', 'there'))
                 business_name = data.get('business', data.get('business_name', ''))
                 instructor_mode = str(data.get('instructor_mode', 'false')).lower()
+                calibration_mode = str(data.get('calibration_mode', 'false')).lower()
+                calibration_phase = str(data.get('calibration_phase', '1'))
                 demo_mode = str(data.get('demo_mode', '')).strip()
                 _is_instructor_call = instructor_mode == 'true'
+                _is_calibration_call = calibration_mode == 'true'
                 prospect_phone = quote(str(target_number))
-                twiml_url = f"{base_url}/twilio/outbound?prospect_name={quote(str(prospect_name))}&business_name={quote(str(business_name))}&prospect_phone={prospect_phone}&instructor_mode={instructor_mode}&demo_mode={quote(str(demo_mode))}"
+                twiml_url = f"{base_url}/twilio/outbound?prospect_name={quote(str(prospect_name))}&business_name={quote(str(business_name))}&prospect_phone={prospect_phone}&instructor_mode={instructor_mode}&calibration_mode={calibration_mode}&calibration_phase={calibration_phase}&demo_mode={quote(str(demo_mode))}"
                 status_callback_url = f"{base_url}/twilio/events"
                 
                 # 5. Lock Governor & Fire (Isolated Task Simulation)
@@ -1374,7 +1463,7 @@ async def trigger_call(request: Request):
                 loop = asyncio.get_running_loop()
                 
                 # [DEMO/INSTRUCTOR MODE] Skip AMD for demo/personal/training calls — connect straight through
-                _amd_mode = None if (demo_mode or _is_instructor_call) else TIMING.machine_detection
+                _amd_mode = None if (demo_mode or _is_instructor_call or _is_calibration_call) else TIMING.machine_detection
                 
                 try:
                     call = await asyncio.wait_for(
@@ -2239,6 +2328,12 @@ async def _education_learning_cycle():
     Background task that runs Alan's education/self-learning module once daily.
     Scrapes fintech news, analyzes revenue signals, and stores insights.
     These insights are automatically injected into Alan's system prompt.
+    
+    [2026-03-11 FIX] Defers execution if a call is in progress. The education
+    cycle does CPU-intensive web scraping (Playwright/BeautifulSoup) + coaching
+    analysis that competes for RAM/CPU. On Tim's 16GB machine at 93% RAM,
+    this caused audio artifacts (static, reverb, underwater sound) during
+    an instructor call. Education now waits for the call to finish.
     """
     # Wait 120s after startup, then run immediately, then daily
     await asyncio.sleep(120)
@@ -2247,6 +2342,25 @@ async def _education_learning_cycle():
         try:
             from datetime import datetime as dt
             now = dt.now()
+            
+            # [2026-03-11 FIX] Do NOT run education during an active call.
+            # Web scraping + coaching consumes CPU/RAM and causes audio artifacts.
+            _waited = 0
+            while CALL_IN_PROGRESS and _waited < 600:  # Wait up to 10 min for call to finish
+                logger.info(f"[EDUCATION] Deferring — call in progress (waited {_waited}s)")
+                await asyncio.sleep(30)
+                _waited += 30
+            if CALL_IN_PROGRESS:
+                logger.warning("[EDUCATION] Call still in progress after 10 min — skipping cycle")
+                # Fall through to sleep until next cycle
+                from datetime import datetime as dt
+                now = dt.now()
+                next_run = now.replace(hour=6, minute=0, second=0, microsecond=0)
+                if now.hour >= 6:
+                    next_run = next_run + __import__('datetime').timedelta(days=1)
+                sleep_seconds = (next_run - now).total_seconds()
+                await asyncio.sleep(sleep_seconds)
+                continue
             
             logger.info(f"[EDUCATION] Starting daily learning cycle at {now.isoformat()}")
             
@@ -2413,6 +2527,50 @@ async def twilio_events(request: Request):
         if answered_by in ("machine_start", "machine_end", "fax") and call_sid:
             _allow_voicemail = False
             _vm_reason = "no_prior_contact"
+
+            # [2026-03-13 FIX] AMD HYBRID CLASSIFIER — for machine_start, defer the
+            # kill by 3s to let the relay server's EAB (Environment-Aware Behavior)
+            # classify the first utterance. If EAB says HUMAN or LIVE_RECEPTIONIST,
+            # override the AMD decision and keep the call alive.
+            #
+            # Problem: Twilio's AMD misidentifies some humans as machines when
+            # businesses have long hold music or greeting systems. This kills
+            # good leads. Example: Lee's Air Plumbing — tagged machine_start but
+            # a real human (Jose) answered and had a full conversation.
+            #
+            # Solution: For machine_start only (not machine_end or fax), wait 3s
+            # for the semantic EAB check. If EAB detects human speech markers,
+            # override the kill. machine_end and fax are always correct.
+            if answered_by == "machine_start":
+                try:
+                    from aqi_conversation_relay_server import AQIConversationRelayServer
+                    _hybrid_override = False
+                    # Wait up to 3s for EAB to classify (100ms polling intervals)
+                    for _hybrid_i in range(30):
+                        _eab_env = AQIConversationRelayServer._eab_overrides.get(call_sid)
+                        if _eab_env:
+                            if _eab_env in ('HUMAN', 'LIVE_RECEPTIONIST'):
+                                _hybrid_override = True
+                                _allow_voicemail = True
+                                _vm_reason = f"amd_hybrid_override: Twilio=machine_start, EAB={_eab_env}"
+                                logger.warning(
+                                    f"[AMD HYBRID] OVERRIDE — keeping call {call_sid} alive. "
+                                    f"Twilio said machine_start but EAB detected {_eab_env}. "
+                                    f"Waited {_hybrid_i * 100}ms for semantic check."
+                                )
+                            else:
+                                logger.info(
+                                    f"[AMD HYBRID] EAB confirms non-human: {_eab_env}. "
+                                    f"Proceeding with voicemail block."
+                                )
+                            break
+                        await asyncio.sleep(0.1)
+                    if not _hybrid_override:
+                        logger.info(f"[AMD HYBRID] No EAB override within 3s for {call_sid}. "
+                                    f"Proceeding with machine_start voicemail block.")
+                except Exception as _hybrid_err:
+                    logger.debug(f"[AMD HYBRID] Check failed (non-fatal): {_hybrid_err}")
+
             try:
                 from lead_database import LeadDB
                 _vm_db = LeadDB()
@@ -2731,9 +2889,13 @@ async def handle_twilio_voice(request: Request):
     business_name = request.query_params.get('business_name', '')
     prospect_phone = request.query_params.get('prospect_phone', '')
     instructor_mode = request.query_params.get('instructor_mode', 'false')
+    calibration_mode = request.query_params.get('calibration_mode', 'false')
+    calibration_phase = request.query_params.get('calibration_phase', '1')
     demo_mode = request.query_params.get('demo_mode', '')
     
     _mode_tag = " [INSTRUCTOR MODE]" if instructor_mode == 'true' else ""
+    if calibration_mode == 'true':
+        _mode_tag = f" [CALIBRATION MODE — PHASE {calibration_phase}]"
     if demo_mode:
         _mode_tag = f" [DEMO MODE: {demo_mode}]"
     logger.info(f"[TWILIO] Handling {call_direction} call. Prospect: {prospect_name}.{_mode_tag} Routing to: {stream_url}")
@@ -2744,6 +2906,8 @@ async def handle_twilio_voice(request: Request):
     business_name_safe = html.escape(business_name)
     prospect_phone_safe = html.escape(prospect_phone)
     instructor_mode_safe = html.escape(instructor_mode)
+    calibration_mode_safe = html.escape(calibration_mode)
+    calibration_phase_safe = html.escape(calibration_phase)
     demo_mode_safe = html.escape(demo_mode)
     
     twiml_response = f'''<?xml version="1.0" encoding="UTF-8"?>
@@ -2755,6 +2919,8 @@ async def handle_twilio_voice(request: Request):
                 <Parameter name="business_name" value="{business_name_safe}" />
                 <Parameter name="prospect_phone" value="{prospect_phone_safe}" />
                 <Parameter name="instructor_mode" value="{instructor_mode_safe}" />
+                <Parameter name="calibration_mode" value="{calibration_mode_safe}" />
+                <Parameter name="calibration_phase" value="{calibration_phase_safe}" />
                 <Parameter name="demo_mode" value="{demo_mode_safe}" />
             </Stream>
         </Connect>
