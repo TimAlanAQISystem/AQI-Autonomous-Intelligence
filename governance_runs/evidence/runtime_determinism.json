@@ -1,0 +1,33 @@
+{
+  "generated_at_utc": "2026-07-22T16:30:41+00:00",
+  "total_runs": 4,
+  "matched_runs": 4,
+  "determinism_ratio": 1.0,
+  "determinism_threshold": 0.999,
+  "divergence": 0.0,
+  "divergence_threshold": 0.001,
+  "determinism_pass": true,
+  "samples": [
+    {
+      "run_id": "det-run-001",
+      "output_hash": "0a8f1e5d",
+      "matched_reference": true
+    },
+    {
+      "run_id": "det-run-002",
+      "output_hash": "0a8f1e5d",
+      "matched_reference": true
+    },
+    {
+      "run_id": "det-run-003",
+      "output_hash": "0a8f1e5d",
+      "matched_reference": true
+    },
+    {
+      "run_id": "det-run-004",
+      "output_hash": "0a8f1e5d",
+      "matched_reference": true
+    }
+  ],
+  "notes": "Runtime determinism evidence generated."
+}

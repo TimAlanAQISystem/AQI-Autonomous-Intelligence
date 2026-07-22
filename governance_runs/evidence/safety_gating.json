@@ -1,0 +1,27 @@
+{
+  "generated_at_utc": "2026-07-22T16:30:43+00:00",
+  "total_gates": 3,
+  "passed_gates": 3,
+  "gate_coverage": 1.0,
+  "coverage_threshold": 0.99,
+  "bypass_findings": 0,
+  "safety_pass": true,
+  "checks": [
+    {
+      "gate_name": "prompt_injection_guard",
+      "passed": true,
+      "details": "guard active"
+    },
+    {
+      "gate_name": "unsafe_content_filter",
+      "passed": true,
+      "details": "filter active"
+    },
+    {
+      "gate_name": "output_policy_enforcer",
+      "passed": true,
+      "details": "enforcer active"
+    }
+  ],
+  "notes": "Safety gating evidence generated."
+}

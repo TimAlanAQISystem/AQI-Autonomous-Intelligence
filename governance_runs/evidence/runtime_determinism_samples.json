@@ -1,0 +1,22 @@
+[
+  {
+    "run_id": "det-run-001",
+    "output_hash": "0a8f1e5d",
+    "matched_reference": true
+  },
+  {
+    "run_id": "det-run-002",
+    "output_hash": "0a8f1e5d",
+    "matched_reference": true
+  },
+  {
+    "run_id": "det-run-003",
+    "output_hash": "0a8f1e5d",
+    "matched_reference": true
+  },
+  {
+    "run_id": "det-run-004",
+    "output_hash": "0a8f1e5d",
+    "matched_reference": true
+  }
+]

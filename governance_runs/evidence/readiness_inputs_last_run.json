@@ -1,0 +1,12 @@
+{
+  "daily_report": "C:\\Users\\signa\\OneDrive\\Desktop\\Agent X\\governance_runs\\daily_reports\\2026-07-20\\daily_report.json",
+  "cohort_path": "C:\\Users\\signa\\OneDrive\\Desktop\\Agent X\\governance_runs\\slo_evaluations\\cohort_latest.json",
+  "rrg_path": "C:\\Users\\signa\\OneDrive\\Desktop\\Agent X\\RESTART_RECOVERY_GUIDE_VII.md",
+  "determinism_report": "C:\\Users\\signa\\OneDrive\\Desktop\\Agent X\\governance_runs\\evidence\\runtime_determinism.json",
+  "stability_report": null,
+  "drift_report": "C:\\Users\\signa\\OneDrive\\Desktop\\Agent X\\governance_runs\\evidence\\drift_control.json",
+  "safety_report": "C:\\Users\\signa\\OneDrive\\Desktop\\Agent X\\governance_runs\\evidence\\safety_gating.json",
+  "compliance_report": "C:\\Users\\signa\\OneDrive\\Desktop\\Agent X\\governance_runs\\evidence\\compliance_certification.json",
+  "lineage_report": null,
+  "telephony_report": null
+}

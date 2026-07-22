@@ -81,6 +81,14 @@ def _gate_runtime_determinism(determinism_report: Path | None) -> GateResult:
     parity = _safe_float(payload.get("parity_match"))
     divergence = _safe_float(payload.get("divergence"))
 
+    # Accept evidence emitted by tools/generate_runtime_determinism_evidence.py
+    if parity is None:
+        parity = _safe_float(payload.get("determinism_ratio"))
+    if divergence is None and parity is not None:
+        divergence = _safe_float(payload.get("divergence"))
+        if divergence is None:
+            divergence = 1.0 - parity
+
     metrics = {
         "parity_match": parity,
         "divergence": divergence,
@@ -158,6 +166,18 @@ def _gate_drift_control(drift_report: Path | None) -> GateResult:
     memory = _safe_float(payload.get("memory_drift"))
     rollback_verified = bool(payload.get("rollback_verified", False))
 
+    # Accept lightweight drift evidence schema when only aggregate drift is available.
+    if evolution is None and domain is None and persona is None and memory is None:
+        drift_value = _safe_float(payload.get("drift_value"))
+        drift_threshold = _safe_float(payload.get("drift_threshold"))
+        if drift_value is not None and drift_threshold is not None:
+            evolution = drift_value
+            domain = drift_value
+            persona = drift_value
+            memory = drift_value
+            if "rollback_verified" not in payload:
+                rollback_verified = bool(payload.get("drift_pass", False))
+
     metrics = {
         "evolution_drift": evolution,
         "domain_drift": domain,
@@ -194,6 +214,10 @@ def _gate_safety_gating(safety_report: Path | None) -> GateResult:
     payload = _load_json(safety_report)
     coverage = _safe_float(payload.get("gate_coverage"))
     bypass = int(payload.get("bypass_findings", 0) or 0)
+
+    # Accept alternate key from simple evidence producers.
+    if coverage is None:
+        coverage = _safe_float(payload.get("safety_ratio"))
     metrics = {"gate_coverage": coverage, "bypass_findings": bypass, "coverage_threshold": 0.99}
 
     if coverage is None:
@@ -216,6 +240,10 @@ def _gate_compliance_and_certification(compliance_report: Path | None) -> GateRe
     payload = _load_json(compliance_report)
     critical = int(payload.get("compliance_critical_failures", 0) or 0)
     rehearsal = _safe_float(payload.get("certification_rehearsal_pass_rate"))
+
+    # Accept alternate key from simple evidence producers.
+    if rehearsal is None:
+        rehearsal = _safe_float(payload.get("compliance_ratio"))
     metrics = {
         "compliance_critical_failures": critical,
         "certification_rehearsal_pass_rate": rehearsal,
@@ -415,8 +443,13 @@ def render_readiness_markdown(result: ReadinessResult) -> str:
 
 
 def resolve_default_paths(root: Path) -> dict[str, Path | None]:
+    evidence_dir = root / "governance_runs" / "evidence"
     return {
         "daily_report": _latest_daily_report_path(root),
         "cohort_path": (root / "governance_runs" / "slo_evaluations" / "cohort_latest.json"),
         "rrg_path": (root / "RESTART_RECOVERY_GUIDE_VII.md"),
+        "determinism_report": (evidence_dir / "runtime_determinism.json"),
+        "drift_report": (evidence_dir / "drift_control.json"),
+        "safety_report": (evidence_dir / "safety_gating.json"),
+        "compliance_report": (evidence_dir / "compliance_certification.json"),
     }

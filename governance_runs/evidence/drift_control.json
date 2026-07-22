@@ -1,0 +1,16 @@
+{
+  "generated_at_utc": "2026-07-22T16:30:42+00:00",
+  "evolution_drift": 0.01,
+  "domain_drift": 0.009,
+  "persona_drift": 0.01,
+  "memory_drift": 0.008,
+  "rollback_verified": true,
+  "thresholds": {
+    "evolution_drift": 0.015,
+    "domain_drift": 0.01,
+    "persona_drift": 0.012,
+    "memory_drift": 0.01
+  },
+  "drift_pass": true,
+  "notes": "Drift control evidence generated."
+}

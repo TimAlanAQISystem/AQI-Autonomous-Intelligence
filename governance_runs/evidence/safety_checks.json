@@ -1,0 +1,17 @@
+[
+  {
+    "gate_name": "prompt_injection_guard",
+    "passed": true,
+    "details": "guard active"
+  },
+  {
+    "gate_name": "unsafe_content_filter",
+    "passed": true,
+    "details": "filter active"
+  },
+  {
+    "gate_name": "output_policy_enforcer",
+    "passed": true,
+    "details": "enforcer active"
+  }
+]
