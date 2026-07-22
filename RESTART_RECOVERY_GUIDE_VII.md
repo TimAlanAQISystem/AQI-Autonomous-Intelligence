@@ -3192,3 +3192,34 @@ Self-Correction Actions: 0 actions — none severity.
 **Next actions:**
 - [ ] Register `scripts/run_scheduled_readiness_cycle.bat` in Windows Task Scheduler with chosen cadence.
 - [ ] Add dashboard publishing/hosting surface if remote visibility is required.
+
+### Session 43: July 22, 2026 — V-8 Governance Activation Note Publication
+
+**Objective:** Publish a concise auditor-ready activation statement for the live V-8 governance stack and bind it into canonical lineage.
+
+**Actions taken:**
+1. Added governance activation artifact:
+   - `docs/V8_GOVERNANCE_ACTIVATION_NOTE.md`
+2. Anchored activation narrative to operational evidence model:
+   - readiness decisions under `governance_runs/readiness/*`
+   - pipeline manifests under `governance_runs/pipeline_runs/*`
+   - lineage references across Sessions 40-42 in this volume
+
+**Validation results:**
+- activation note is concise, evidence-scoped, and auditor-readable
+- statement preserves explicit evidence-gate doctrine for readiness/deployment claims
+
+**Negative proof:**
+- This is not a capability inflation claim; note certifies governance-stack operation, not unsupported runtime declarations.
+- This is not a bypass of evaluator controls; all readiness assertions remain artifact-backed and gate-derived.
+
+**Drift metrics (session-local):**
+- IDS: 0.0
+- GAR: 100% for activation-note publication path
+- MFC: 100% (activation note + Session 43 lineage extension)
+
+**Status:**
+- V-8 governance activation summary is now canonical and directly auditable.
+
+**Next actions:**
+- [ ] Keep activation note synchronized with future governance stack expansions.
