@@ -3223,3 +3223,46 @@ Self-Correction Actions: 0 actions — none severity.
 
 **Next actions:**
 - [ ] Keep activation note synchronized with future governance stack expansions.
+
+### Session 44: July 22, 2026 — Governance Hardening Neg-Proof Validation
+
+**Objective:** Execute explicit neg-proofing for the governance hardening slice and record validation evidence in canonical lineage.
+
+**Actions taken:**
+1. Scoped working-set audit on hardening targets:
+   - `tools/governance_hardening.py`
+   - `tools/run_governance_pipeline.py`
+   - `tools/build_governance_index.py`
+   - `tools/rotate_governance_artifacts.py`
+   - `tools/aqi_governance_console.py`
+   - `config/governance_retention.json`
+2. Static diagnostics check:
+   - no reported errors across all above files
+3. Runtime neg-proof execution:
+   - `pytest tests/test_governance_pipeline.py tests/test_readiness_dashboard.py tests/test_autonomous_readiness_cycle.py -q`
+   - result: `5 passed`
+4. Artifact-level command validation:
+   - `tools/build_governance_index.py` executed successfully
+   - `tools/rotate_governance_artifacts.py` executed successfully (`archived=0`, `deleted=0`, `skipped=0`)
+   - `tools/aqi_governance_console.py build-index` executed successfully
+
+**Validation results:**
+- runtime and static checks passed for hardening slice
+- governance index refreshed with current counts (`readiness_runs=4`, `pipeline_runs=1`, `regressions=0`)
+- retention command completed without destructive side effects
+
+**Negative proof:**
+- This is not silent behavior drift; hardening commands were executed and validated with explicit outputs.
+- This is not uncontrolled deletion; retention policy action remained `archive` and no artifacts were removed in this run.
+- This is not unverified operator routing; console dispatch path was executed directly and completed successfully.
+
+**Drift metrics (session-local):**
+- IDS: 0.0
+- GAR: 100% for governance hardening neg-proof validation path
+- MFC: 100% (scoped audit + static checks + runtime checks + Session 44 lineage extension)
+
+**Status:**
+- Neg-proofing has been explicitly performed and logged for the current hardening workstream.
+
+**Next actions:**
+- [ ] Continue attaching neg-proof blocks for each subsequent governance hardening increment.
