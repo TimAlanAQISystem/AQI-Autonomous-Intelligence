@@ -1,0 +1,80 @@
+{
+  "generated_at_utc": "2026-07-22T16:19:46+00:00",
+  "overall_status": "NOT_READY",
+  "pass_count": 3,
+  "conditional_count": 4,
+  "fail_count": 0,
+  "gates": [
+    {
+      "name": "Runtime Determinism",
+      "status": "CONDITIONAL",
+      "reason": "Determinism evidence file missing (expected parity/divergence report).",
+      "metrics": {},
+      "evidence_refs": []
+    },
+    {
+      "name": "Stability Envelope",
+      "status": "PASS",
+      "reason": "Stability envelope thresholds satisfied. Derived from daily-report proxy evidence.",
+      "metrics": {
+        "stability": 1.0,
+        "continuity": 1.0,
+        "stability_threshold": 0.97,
+        "continuity_threshold": 0.98
+      },
+      "evidence_refs": [
+        "C:\\Users\\signa\\OneDrive\\Desktop\\Agent X\\governance_runs\\daily_reports\\2026-07-20\\daily_report.json"
+      ]
+    },
+    {
+      "name": "Drift Control",
+      "status": "CONDITIONAL",
+      "reason": "Drift evidence file missing (expected evolution/domain/persona/memory drift bundle).",
+      "metrics": {},
+      "evidence_refs": []
+    },
+    {
+      "name": "Safety Gating",
+      "status": "CONDITIONAL",
+      "reason": "Safety coverage evidence missing.",
+      "metrics": {},
+      "evidence_refs": []
+    },
+    {
+      "name": "Compliance and Certification",
+      "status": "CONDITIONAL",
+      "reason": "Compliance/certification evidence missing.",
+      "metrics": {},
+      "evidence_refs": []
+    },
+    {
+      "name": "Lineage and Auditability",
+      "status": "PASS",
+      "reason": "Lineage/auditability thresholds satisfied.",
+      "metrics": {
+        "lineage_completeness": 1.0,
+        "reconstruction_success_rate": 1.0,
+        "completeness_threshold": 1.0,
+        "reconstruction_threshold": 1.0
+      },
+      "evidence_refs": [
+        "C:\\Users\\signa\\OneDrive\\Desktop\\Agent X\\RESTART_RECOVERY_GUIDE_VII.md"
+      ]
+    },
+    {
+      "name": "Integration and Telephony Reliability",
+      "status": "PASS",
+      "reason": "Telephony reliability thresholds satisfied.",
+      "metrics": {
+        "call_success_rate": 1.0,
+        "severity_1_incidents": 0,
+        "call_success_threshold": 0.99,
+        "manifest_count_recent": 26
+      },
+      "evidence_refs": [
+        "C:\\Users\\signa\\OneDrive\\Desktop\\Agent X\\governance_runs\\slo_evaluations\\cohort_latest.json",
+        "C:\\Users\\signa\\OneDrive\\Desktop\\Agent X\\governance_runs\\daily_reports\\2026-07-20\\daily_report.json"
+      ]
+    }
+  ]
+}

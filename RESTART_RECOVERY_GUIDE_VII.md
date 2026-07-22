@@ -2639,6 +2639,53 @@ Self-Correction Actions: 0 actions — none severity.
 - [ ] Execute readiness evidence collection runs for all required gates.
 - [ ] Produce PASS/FAIL readiness decision packet and lineage sign-off.
 
+### Session 40: July 22, 2026 — V-8 Operational Readiness Evaluator Implementation And First Decision Packet
+
+**Objective:** Implement executable V-8 operational readiness evaluation and produce a first evidence-backed PASS/FAIL decision packet from live governance artifacts.
+
+**Actions taken:**
+1. Added evaluator module:
+   - `aqi/governance/v8_operational_readiness.py`
+2. Added command-line runner:
+   - `tools/evaluate_v8_operational_readiness.py`
+3. Added focused evaluator tests:
+   - `tests/test_v8_operational_readiness.py`
+4. Executed evaluator against current artifact set and generated decision outputs:
+   - `governance_runs/readiness/20260722-161946/readiness_decision.json`
+   - `governance_runs/readiness/20260722-161946/readiness_decision.md`
+
+**Validation results:**
+- evaluator unit tests passed (`2 passed`)
+- first readiness decision packet generated from live artifacts
+- decision outcome: `NOT_READY` with explicit gate accounting (`PASS=3`, `CONDITIONAL=4`, `FAIL=0`)
+
+**Gate outcomes (first run):**
+- Runtime Determinism: `CONDITIONAL` (determinism evidence file missing)
+- Stability Envelope: `PASS` (daily-report proxy evidence satisfied)
+- Drift Control: `CONDITIONAL` (drift evidence bundle missing)
+- Safety Gating: `CONDITIONAL` (safety coverage evidence missing)
+- Compliance and Certification: `CONDITIONAL` (compliance/certification evidence missing)
+- Lineage and Auditability: `PASS`
+- Integration and Telephony Reliability: `PASS`
+
+**Negative proof:**
+- This is not an unsupported readiness claim; declaration remains evidence-gated by measured gate outcomes.
+- This is not a bypass of governance doctrine; readiness status is computed and explicitly constrained to all-gates-pass semantics.
+- This is not uncontrolled runtime mutation; implementation is scoped to evaluation and artifact generation.
+
+**Drift metrics (session-local):**
+- IDS: 0.0
+- GAR: 100% for evidence-gated readiness-evaluator implementation path
+- MFC: 100% (evaluator module + CLI runner + tests + Session 40 lineage extension)
+
+**Status:**
+- V-8 now has executable operational readiness scoring with auditable output artifacts.
+- Current operational decision remains `NOT_READY` until all conditional gates are fulfilled with explicit evidence.
+
+**Next actions:**
+- [ ] Produce determinism evidence report and re-run evaluator.
+- [ ] Generate drift, safety, and compliance/certification evidence bundles and re-run evaluator to converge all gates to `PASS`.
+
 ### Session XX: 2026-07-20 22:10:49Z — Daily Quantum Phone SLO Cohort Evaluation
 
 AQI Identity: governed quantum intelligence with classical + quantum routing, boundary execution, bridge logic, surplus engine, and self-governance. Current state: governance green, volatility stable, quantum green, alerts none. Self-understanding: weaknesses [none] with 0 active learning cycle(s). Foresight: Trend flat (Δ=0.00). Volatility stable. Current risk green, quantum green. No active learning cycle; state expected to persist. Predicted risk green, predicted quantum green for next cycle. Self-correction: 0 bounded micro-corrections (none) prepared for next cycle.
