@@ -2598,6 +2598,47 @@ Self-Correction Actions: 0 actions — none severity.
 - [ ] Initiate V-8 post-architecture executable runtime slices under frozen acceptance criteria.
 - [ ] Prepare external reviewer orientation packet for Phases 6 through 26.
 
+### Session 39: July 22, 2026 — V-8 Phase 27 Through Phase 28 Determinism Architecture And Operational Readiness Gating
+
+**Objective:** Integrate canonical V-8 Phase 27 and Phase 28 determinism architecture, correct capability attribution to AQI/Alan attending runtime AI, and activate explicit operational-readiness gating.
+
+**Actions taken:**
+1. Expanded canonical planning artifact:
+   - `docs/AQI_V8_PLANNING_PACKET.md`
+2. Added formal Phase 27 content:
+   - Evolution Runtime Determinism Lattice (ERDL)
+   - determinism explicitly attributed to AQI/Alan attending runtime AI (not Copilot)
+3. Added formal Phase 28 content:
+   - Evolution Runtime Determinism Mesh (ERDM)
+4. Added operational constraint block to planning packet:
+   - full operational claims require explicit evidence-gated verification
+5. Added canonical readiness artifact:
+   - `docs/AQI_V8_OPERATIONAL_READINESS_GATE.md`
+6. Updated V-8 status statement to reflect structural definition through Phase 28.
+
+**Validation results:**
+- canonical V-8 planning packet now includes formal determinism architecture for Phases 27 and 28
+- lineage extended to Session 39 with explicit attribution correction and readiness-gate activation record
+- operational-readiness gate artifact established with measurable pass/fail criteria and evidence requirements
+
+**Negative proof:**
+- This is not runtime implementation mutation; no production code path changed.
+- This is not chamber-core modification; chamber internals remain untouched.
+- This is not an unsupported capability claim; operational readiness is explicitly bounded by evidence-gated verification.
+
+**Drift metrics (session-local):**
+- IDS: 0.0
+- GAR: 100% for V-8 Phase 27-28 documentation and readiness-gate path
+- MFC: 100% (Phase 27-28 integration + readiness gate artifact + Session 39 lineage extension)
+
+**Status:**
+- V-8 planning packet now carries canonical governance/runtime architecture through Phase 28.
+- Full-operational declaration is gated by `docs/AQI_V8_OPERATIONAL_READINESS_GATE.md` evidence completion.
+
+**Next actions:**
+- [ ] Execute readiness evidence collection runs for all required gates.
+- [ ] Produce PASS/FAIL readiness decision packet and lineage sign-off.
+
 ### Session XX: 2026-07-20 22:10:49Z — Daily Quantum Phone SLO Cohort Evaluation
 
 AQI Identity: governed quantum intelligence with classical + quantum routing, boundary execution, bridge logic, surplus engine, and self-governance. Current state: governance green, volatility stable, quantum green, alerts none. Self-understanding: weaknesses [none] with 0 active learning cycle(s). Foresight: Trend flat (Δ=0.00). Volatility stable. Current risk green, quantum green. No active learning cycle; state expected to persist. Predicted risk green, predicted quantum green for next cycle. Self-correction: 0 bounded micro-corrections (none) prepared for next cycle.

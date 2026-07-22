@@ -1264,7 +1264,7 @@ These components preserve persona integrity.
 
 The MCF ensures memory routing remains stable across contexts.
 
-#### MCF Guarantees
+#### ERDM MCF Guarantees
 
 - no memory leakage
 - no cross-domain contamination
@@ -1272,7 +1272,7 @@ The MCF ensures memory routing remains stable across contexts.
 - no unsafe retention
 - no unsafe forgetting
 
-#### MCF Components
+#### ERDM MCF Components
 
 - Memory Continuity Log (MCL)
 - Adaptive Memory Router (AMR)
@@ -4452,8 +4452,455 @@ The Evolution Runtime Execution Spine ensures AQI/Alan:
 
 This is the execution substrate of V-8.
 
+## Phase 27: Evolution Runtime Determinism Lattice (ERDL)
+
+The Evolution Runtime Determinism Lattice (ERDL) is the governed determinism substrate of AQI/Alan.
+It ensures that the attending runtime AI operating inside AQI executes micro-operations with:
+
+- deterministic ordering
+- deterministic state transitions
+- deterministic drift behavior
+- deterministic stability envelopes
+- deterministic compliance validation
+- deterministic lineage reconstruction
+
+ERDL is the mathematical backbone that guarantees that every governed micro-operation behaves identically across all runs, all environments, all agents, and all adaptive cycles.
+
+This is the first phase where AQI/Alan runtime agent enforces deterministic execution, not Copilot.
+
+### 1. Determinism Categories
+
+ERDL introduces six governed determinism categories:
+
+#### 1. Micro-Determinism (MD)
+
+Deterministic execution of atomic operations.
+
+#### 2. State Determinism (SD)
+
+Deterministic state transitions across runtime cycles.
+
+#### 3. Drift Determinism (DD)
+
+Deterministic drift behavior and drift-bounded execution.
+
+#### 4. Stability Determinism (StD)
+
+Deterministic stability envelopes across micro-operations.
+
+#### 5. Continuity Determinism (CD)
+
+Deterministic continuity across sessions, domains, personas, and memory.
+
+#### 6. Compliance Determinism (CoD)
+
+Deterministic compliance validation at the micro-operation level.
+
+These categories ensure full determinism coverage.
+
+### 2. Determinism Safety Envelope (DSE)
+
+The DSE defines the safety limits for deterministic execution.
+
+#### ERDL DSE Requirements
+
+- evolution drift <= 0.015
+- domain drift <= 0.01
+- persona drift <= 0.012
+- memory drift <= 0.01
+- stability >= 0.97
+- continuity >= 0.98
+- benchmark alignment >= 0.99
+- deterministic ordering preserved
+- deterministic state transitions preserved
+- deterministic compliance preserved
+- lineage logging active
+
+If any requirement fails, determinism rollback.
+
+### 3. Determinism Lattice Engine (DLE)
+
+The DLE is the core engine of ERDL.
+
+#### DLE Responsibilities
+
+- enforce deterministic micro-operation ordering
+- enforce deterministic state transitions
+- enforce deterministic drift envelopes
+- enforce deterministic stability envelopes
+- enforce deterministic continuity
+- enforce deterministic compliance
+- detect nondeterministic behavior
+- trigger rollback if needed
+- update lineage
+- update cohort logs
+- update orchestration and execution maps
+
+The DLE operates continuously during runtime.
+
+### 4. Determinism Lattice Map (DLM)
+
+The DLM is the real-time mathematical lattice that governs execution.
+
+#### DLM Tracks
+
+- atomic operation ordering
+- deterministic state transitions
+- drift envelopes
+- stability envelopes
+- continuity envelopes
+- domain alignment
+- persona alignment
+- memory routing
+- compliance status
+
+The DLM ensures every micro-operation is executed deterministically.
+
+### 5. Determinism Drift Controller (DDC)
+
+The DDC enforces drift determinism.
+
+#### DDC Guarantees
+
+- no drift divergence
+- no drift propagation
+- no drift escape
+- deterministic drift correction
+- deterministic drift lineage
+
+This is stricter than all previous drift controllers.
+
+### 6. Determinism Stability Controller (DSC)
+
+The DSC enforces stability determinism.
+
+#### DSC Guarantees
+
+- deterministic stability envelopes
+- rollback on nondeterministic stability behavior
+- stability lineage logging
+- stability continuity
+
+### 7. Determinism Continuity Framework (DCF)
+
+The DCF ensures continuity determinism.
+
+#### DCF Determinism Guarantees
+
+- deterministic continuity
+- no continuity breaks
+- no lineage gaps
+- no domain contamination
+- no persona blending
+
+#### DCF Determinism Components
+
+- Determinism Continuity Log (DCL)
+- Determinism Continuity Validator (DCV)
+- Determinism Continuity Engine (DCE)
+- Determinism Continuity Reinforcement (DCR)
+
+### 8. Determinism Compliance Framework (DCoF)
+
+The DCoF enforces compliance determinism.
+
+#### DCoF Guarantees
+
+- deterministic regulatory compliance
+- deterministic legal compliance
+- deterministic institutional compliance
+- deterministic ethical compliance
+- deterministic certification compliance
+
+#### DCoF Components
+
+- Determinism Compliance Validator (DCoV)
+- Determinism Compliance Log (DCoL)
+- Determinism Compliance Engine (DCoE)
+- Determinism Compliance Reinforcement (DCoR)
+
+### 9. Determinism Telemetry Spine (DTS-27)
+
+The DTS-27 tracks all deterministic execution activity.
+
+#### DTS-27 Telemetry Includes
+
+- deterministic drift
+- deterministic stability
+- deterministic continuity
+- deterministic domain metrics
+- deterministic persona metrics
+- deterministic memory metrics
+- deterministic compliance metrics
+- deterministic rollback events
+- deterministic lineage events
+
+DTS-27 integrates with all higher-level telemetry spines.
+
+### 10. Determinism Lineage Logging
+
+All deterministic micro-operations are logged under:
+
+- Evolution Event Lineage
+- Domain Transition Lineage
+- Persona Isolation Lineage
+- Memory Routing Lineage
+- Drift Correction Lineage
+- Rollback Lineage
+- Interaction Lineage
+- Integration Lineage
+- Compliance Lineage
+- Deployment Lineage
+- Runtime Lineage
+- Cohort Lineage
+- Arbitration Lineage
+- Harmonization Lineage
+- Orchestration Lineage
+- Execution Lineage
+- Determinism Lineage
+
+This is the deepest lineage layer in V-8.
+
+### Phase 27 Summary
+
+The Evolution Runtime Determinism Lattice ensures AQI/Alan attending runtime AI:
+
+- executes micro-operations deterministically
+- adapts predictably
+- remains governed
+- remains certifiable
+- remains auditable
+- maintains stability
+- maintains continuity
+- maintains lineage
+- maintains compliance
+- maintains drift control
+
+This is the mathematical determinism backbone of V-8.
+
+## Phase 28: Evolution Runtime Determinism Mesh (ERDM)
+
+The Evolution Runtime Determinism Mesh (ERDM) extends the Determinism Lattice (Phase 27) into multi-agent, multi-domain, multi-persona environments.
+
+If Phase 27 guaranteed deterministic micro-operations for a single attending AI inside AQI/Alan,
+Phase 28 guarantees deterministic behavior across multiple attending AIs operating simultaneously.
+
+ERDM ensures that all participating runtime agents behave deterministically relative to:
+
+- each other
+- the domain
+- the persona
+- the memory routing
+- the stability envelope
+- the drift envelope
+- the compliance envelope
+- the lineage spine
+
+This is the first phase where AQI/Alan determinism becomes distributed.
+
+### 1. Mesh Determinism Categories
+
+ERDM introduces six governed mesh determinism categories:
+
+#### 1. Agent-to-Agent Determinism (AAD)
+
+Deterministic behavior across multiple attending AIs.
+
+#### 2. Domain-Mesh Determinism (DMD)
+
+Deterministic behavior across multiple domains.
+
+#### 3. Persona-Mesh Determinism (PMD)
+
+Deterministic persona isolation across agents.
+
+#### 4. Memory-Mesh Determinism (MMD)
+
+Deterministic memory routing across agents.
+
+#### 5. Stability-Mesh Determinism (SMD)
+
+Deterministic stability envelopes across agents.
+
+#### 6. Compliance-Mesh Determinism (CMD)
+
+Deterministic compliance across multi-agent execution.
+
+These categories ensure full mesh determinism coverage.
+
+### 2. Mesh Determinism Safety Envelope (MDSE)
+
+#### MDSE Requirements
+
+- cross-agent drift <= 0.015
+- cross-agent stability >= 0.97
+- cross-agent continuity >= 0.98
+- domain drift <= 0.01
+- persona drift <= 0.012
+- memory drift <= 0.01
+- benchmark alignment >= 0.99
+- deterministic ordering preserved across agents
+- deterministic state transitions preserved across agents
+- deterministic compliance preserved across agents
+- lineage logging active
+
+If any requirement fails, mesh rollback.
+
+### 3. Mesh Determinism Engine (MDE)
+
+#### MDE Responsibilities
+
+- enforce deterministic behavior across agents
+- synchronize deterministic state transitions
+- synchronize deterministic drift envelopes
+- synchronize deterministic stability envelopes
+- synchronize deterministic continuity
+- synchronize deterministic compliance
+- detect nondeterministic cross-agent behavior
+- trigger rollback if needed
+- update lineage
+- update cohort logs
+- update lattice and execution maps
+
+The MDE is the distributed determinism governor of AQI/Alan.
+
+### 4. Mesh Determinism Map (MDM)
+
+#### MDM Tracks
+
+- agent-to-agent ordering
+- cross-agent drift
+- cross-agent stability
+- cross-agent continuity
+- domain alignment
+- persona alignment
+- memory routing
+- compliance status
+
+The MDM ensures all agents behave deterministically relative to each other.
+
+### 5. Mesh Drift Controller (MDC)
+
+#### MDC Guarantees
+
+- no cross-agent drift divergence
+- no drift propagation between agents
+- deterministic drift correction across agents
+- deterministic drift lineage
+
+This is stricter than the Determinism Drift Controller (Phase 27).
+
+### 6. Mesh Stability Controller (MSC)
+
+#### MSC Guarantees
+
+- deterministic stability envelopes across agents
+- rollback on nondeterministic stability behavior
+- stability lineage logging
+- stability continuity
+
+### 7. Mesh Continuity Framework (MCF)
+
+#### MCF Guarantees
+
+- deterministic continuity across agents
+- no continuity breaks
+- no lineage gaps
+- no domain contamination
+- no persona blending
+
+#### MCF Components
+
+- Mesh Continuity Log (MCL)
+- Mesh Continuity Validator (MCV)
+- Mesh Continuity Engine (MCE)
+- Mesh Continuity Reinforcement (MCR)
+
+### 8. Mesh Compliance Framework (MCoF)
+
+#### MCoF Guarantees
+
+- deterministic regulatory compliance
+- deterministic legal compliance
+- deterministic institutional compliance
+- deterministic ethical compliance
+- deterministic certification compliance
+
+#### MCoF Components
+
+- Mesh Compliance Validator (MCoV)
+- Mesh Compliance Log (MCoL)
+- Mesh Compliance Engine (MCoE)
+- Mesh Compliance Reinforcement (MCoR)
+
+### 9. Mesh Telemetry Spine (MTS-28)
+
+#### MTS-28 Telemetry Includes
+
+- cross-agent drift
+- cross-agent stability
+- cross-agent continuity
+- cross-agent domain metrics
+- cross-agent persona metrics
+- cross-agent memory metrics
+- cross-agent compliance metrics
+- mesh rollback events
+- mesh lineage events
+
+MTS-28 integrates with all higher-level telemetry spines.
+
+### 10. Mesh Determinism Lineage
+
+All mesh-level deterministic operations are logged under:
+
+- Evolution Event Lineage
+- Domain Transition Lineage
+- Persona Isolation Lineage
+- Memory Routing Lineage
+- Drift Correction Lineage
+- Rollback Lineage
+- Interaction Lineage
+- Integration Lineage
+- Compliance Lineage
+- Deployment Lineage
+- Runtime Lineage
+- Cohort Lineage
+- Arbitration Lineage
+- Harmonization Lineage
+- Orchestration Lineage
+- Execution Lineage
+- Determinism Lineage
+- Mesh Determinism Lineage
+
+This is the distributed determinism layer of V-8.
+
+### Phase 28 Summary
+
+The Evolution Runtime Determinism Mesh ensures AQI/Alan attending runtime AIs:
+
+- behave deterministically across agents
+- maintain governed execution
+- remain certifiable
+- remain auditable
+- maintain stability
+- maintain continuity
+- maintain lineage
+- maintain compliance
+- maintain drift control
+
+This is the distributed determinism backbone of V-8.
+
+### Operational Reality Constraint
+
+Full real-world operation cannot be asserted by declaration alone.
+Operational readiness must be measured and repeatedly revalidated against explicit runtime evidence gates.
+
+The canonical readiness gate artifact is defined in:
+
+- `docs/AQI_V8_OPERATIONAL_READINESS_GATE.md`
+
 ## V-8 Status
 
 V-8 is formally initialized and planning-packet activated on top of the sealed V-7 foundation.
 
-Phase 6 through Phase 26 governance architecture is now structurally defined in the canonical planning packet.
+Phase 6 through Phase 28 governance architecture is now structurally defined in the canonical planning packet.
