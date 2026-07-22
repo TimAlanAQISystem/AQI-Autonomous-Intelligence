@@ -3103,3 +3103,92 @@ Self-Correction Actions: 0 actions — none severity.
 **Next actions:**
 - [ ] Review gate-level metrics and maintain evidence freshness cadence.
 - [ ] Investigate immediately if any future cycle emits readiness regression alert.
+
+### Session XX: 2026-07-22T16:39:40+00:00 — Autonomous V-8 Readiness Cycle
+
+**Objective:** Execute autonomous readiness cycle with evidence generation, evaluation, and regression detection.
+
+**Cycle results:**
+- overall_status=READY
+- pass=7
+- conditional=0
+- fail=0
+- regression_detected=False
+- regression_detail=No regression detected.
+
+**Artifacts:**
+- C:/Users/signa/OneDrive/Desktop/Agent X/governance_runs/readiness/20260722-163940/readiness_decision.json
+- C:/Users/signa/OneDrive/Desktop/Agent X/governance_runs/readiness/20260722-163940/readiness_decision.md
+- C:/Users/signa/OneDrive/Desktop/Agent X/governance_runs/evidence/runtime_determinism.json
+- C:/Users/signa/OneDrive/Desktop/Agent X/governance_runs/evidence/drift_control.json
+- C:/Users/signa/OneDrive/Desktop/Agent X/governance_runs/evidence/safety_gating.json
+- C:/Users/signa/OneDrive/Desktop/Agent X/governance_runs/evidence/compliance_certification.json
+
+**Operator notes:**
+- Governance pipeline and dashboard activation
+
+**Next actions:**
+- [ ] Review gate-level metrics and maintain evidence freshness cadence.
+- [ ] Investigate immediately if any future cycle emits readiness regression alert.
+
+### Session XX: 2026-07-22T16:39:40+00:00 — Governance Pipeline Orchestration Run
+
+**Objective:** Execute canonical governance pipeline and preserve run manifest for auditability.
+
+**Run summary:**
+- overall_status=READY
+- run_manifest=C:/Users/signa/OneDrive/Desktop/Agent X/governance_runs/pipeline_runs/20260722-163940/pipeline_manifest.json
+
+**Operator notes:**
+- Governance pipeline and dashboard activation
+
+**Next actions:**
+- [ ] Continue cadence execution and monitor regression alerts.
+- [ ] Review pipeline manifest artifacts for each run.
+
+### Session 42: July 22, 2026 — Scheduled Runner, Governance Pipeline, and Readiness Dashboard Activation
+
+**Objective:** Extend V-8 readiness operations from single-cycle execution into scheduler-compatible cadence orchestration, pipeline manifesting, and dashboard visibility.
+
+**Actions taken:**
+1. Added scheduler-compatible wrapper:
+   - `scripts/run_scheduled_readiness_cycle.bat`
+2. Added governance pipeline orchestrator:
+   - `tools/run_governance_pipeline.py`
+3. Added readiness dashboard generator:
+   - `tools/build_readiness_dashboard.py`
+4. Added dashboard styling asset:
+   - `aqi/dashboard/static/styles.css`
+5. Added validation tests:
+   - `tests/test_governance_pipeline.py`
+   - `tests/test_readiness_dashboard.py`
+6. Executed live governance pipeline run:
+   - readiness output: `governance_runs/readiness/20260722-163940/readiness_decision.json`
+   - readiness narrative: `governance_runs/readiness/20260722-163940/readiness_decision.md`
+   - pipeline manifest: `governance_runs/pipeline_runs/20260722-163940/pipeline_manifest.json`
+7. Generated live dashboard output:
+   - `governance_runs/readiness_dashboard/index.html`
+
+**Validation results:**
+- new tests passed (`5 passed`)
+- governance pipeline run completed with `overall_status=READY`
+- autonomous cycle remained stable with `pass=7`, `conditional=0`, `fail=0`
+- dashboard build completed with recent run history rendered
+
+**Negative proof:**
+- This is not unverifiable autonomy; scheduling is explicit operator-controlled batch execution.
+- This is not policy bypass; readiness status remains evaluator-derived from evidence gates.
+- This is not hidden mutation; each run emits auditable readiness and pipeline artifacts.
+
+**Drift metrics (session-local):**
+- IDS: 0.0
+- GAR: 100% for scheduler/pipeline/dashboard expansion path
+- MFC: 100% (wrapper + pipeline orchestrator + dashboard + tests + Session 42 lineage extension)
+
+**Status:**
+- AQI V-8 now includes scheduler-compatible execution path, governed pipeline orchestration, and operational readiness visibility surface.
+- Latest pipeline run confirms `READY` continuity.
+
+**Next actions:**
+- [ ] Register `scripts/run_scheduled_readiness_cycle.bat` in Windows Task Scheduler with chosen cadence.
+- [ ] Add dashboard publishing/hosting surface if remote visibility is required.
