@@ -62,12 +62,16 @@ def _register_governance_result(
     status: str,
     passed: bool,
     metrics: Dict[str, Any],
+    result_details: Optional[Dict[str, Any]] = None,
 ) -> None:
     if controller is None:
         return
+    result_payload: Dict[str, Any] = {"status": status, "passed": passed}
+    if result_details:
+        result_payload.update(result_details)
     controller.register_mission_result(
         mission_type,
-        {"status": status, "passed": passed},
+        result_payload,
         metrics,
     )
 
@@ -414,9 +418,14 @@ def main() -> int:
             _register_governance_result(
                 governance,
                 "merchant_weekly_report",
-                "orchestrator_integration_failed",
+                "integration_failed",
                 False,
                 {"mission_stability_score": 0.45, "risk_score": 0.75},
+                {
+                    "failure_reason": reason,
+                    "failure_class": "integration_failed",
+                    "failure_stage": "orchestrator_coordination",
+                },
             )
             print(f"Orchestrator integration failed: {reason}")
             return 10
