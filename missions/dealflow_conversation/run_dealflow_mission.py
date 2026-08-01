@@ -163,6 +163,28 @@ def main() -> int:
             print(f"Orchestrator denied mission routing: {reason}")
             return 7
 
+        if coordination.get("status") == "integration_failed":
+            reason = str((coordination.get("decision") or {}).get("reason", "qpc mission integration failed"))
+            _append_jsonl(
+                output_dir / "mission_runs.jsonl",
+                {
+                    "timestamp_utc": _utc_now(),
+                    "status": "orchestrator_integration_failed",
+                    "payload": str(Path(args.payload)).replace("\\", "/"),
+                    "use_orchestrator": True,
+                    "error": reason,
+                },
+            )
+            _register_governance_result(
+                governance,
+                "dealflow_conversation",
+                "orchestrator_integration_failed",
+                False,
+                {"mission_stability_score": 0.45, "risk_score": 0.75},
+            )
+            print(f"Orchestrator integration failed: {reason}")
+            return 10
+
         coordination_status = str(coordination.get("status", "coordinated"))
         if coordination_status in {"partially_blocked", "blocked"}:
             blocked_roles = list(coordination.get("blocked_roles") or [])

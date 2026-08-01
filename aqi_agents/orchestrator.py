@@ -360,6 +360,24 @@ class MultiAgentOrchestrator:
             shared_state=self.state_store.snapshot(),
         )
 
+        if qpc_plan_payload and qpc_plan_payload.get("error"):
+            error_reason = str(qpc_plan_payload.get("error", "qpc integration failed"))
+            return {
+                "mission_type": mission_type,
+                "status": "integration_failed",
+                "roles": [],
+                "messages": [],
+                "trace_id": trace_id,
+                "qpc": qpc_plan_payload,
+                "decision": {
+                    "allowed": False,
+                    "decision": "deny",
+                    "reason": error_reason,
+                    "rule_ids": ["QPC_INTEGRATION_FAILED"],
+                    "risk_level": "yellow",
+                },
+            }
+
         self.state_store.set_active_mission(
             mission_type,
             {

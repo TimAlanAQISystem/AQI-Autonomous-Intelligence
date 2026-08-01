@@ -216,3 +216,71 @@ def test_dealflow_orchestrator_partial_block_stops_run(tmp_path: Path) -> None:
     ]
     assert events[-1]["status"] == "orchestrator_partially_blocked"
     assert not (output_dir / "mission_summary.json").exists()
+
+
+def test_dealflow_orchestrator_qpc_integration_failure_stops_run(tmp_path: Path) -> None:
+    payload_path = tmp_path / "payload.json"
+    _write_json(payload_path, _valid_payload())
+
+    shim_root = tmp_path / "shim"
+    (shim_root / "aqi_agents").mkdir(parents=True)
+    (shim_root / "aqi_governance").mkdir(parents=True)
+    (shim_root / "aqi_agents" / "__init__.py").write_text("", encoding="utf-8")
+    (shim_root / "aqi_governance" / "__init__.py").write_text("", encoding="utf-8")
+    (shim_root / "aqi_agents" / "orchestrator.py").write_text(
+        "class MultiAgentOrchestrator:\n"
+        "    def __init__(self, *args, **kwargs):\n"
+        "        pass\n"
+        "\n"
+        "    def coordinate_mission(self, mission_type, context):\n"
+        "        return {\n"
+        "            'status': 'integration_failed',\n"
+        "            'decision': {'reason': 'forced qpc mission failure'},\n"
+        "            'roles': [],\n"
+        "            'messages': [],\n"
+        "            'qpc': {'error': 'forced qpc mission failure'}\n"
+        "        }\n",
+        encoding="utf-8",
+    )
+    (shim_root / "aqi_governance" / "controller.py").write_text(
+        "class _Gate:\n"
+        "    allowed = True\n"
+        "    reason = 'ok'\n"
+        "\n"
+        "class GlobalGovernanceController:\n"
+        "    def can_start_mission(self, *args, **kwargs):\n"
+        "        return _Gate()\n"
+        "\n"
+        "    def register_mission_result(self, *args, **kwargs):\n"
+        "        return None\n",
+        encoding="utf-8",
+    )
+
+    env = dict(os.environ)
+    env["PYTHONPATH"] = str(shim_root) + os.pathsep + env.get("PYTHONPATH", "")
+
+    output_dir = tmp_path / "reports" / "dealflow_conversation"
+    result = _run(
+        [
+            str(_script("run_dealflow_mission.py")),
+            "--payload",
+            str(payload_path),
+            "--schema",
+            str(_schema()),
+            "--output-dir",
+            str(output_dir),
+            "--use-orchestrator",
+        ],
+        cwd=tmp_path,
+        env=env,
+    )
+
+    assert result.returncode == 10, result.stdout + result.stderr
+
+    events = [
+        json.loads(line)
+        for line in (output_dir / "mission_runs.jsonl").read_text(encoding="utf-8").splitlines()
+        if line.strip()
+    ]
+    assert events[-1]["status"] == "orchestrator_integration_failed"
+    assert not (output_dir / "mission_summary.json").exists()
