@@ -3695,6 +3695,41 @@ Self-Correction Actions: 0 actions — none severity.
 **Status:**
 - Option B stability preview parity slice closed and validated.
 
+### Session XX: 2026-08-01T00:00:00Z - Option C Governance Rollup Consistency
+
+**Objective:** Ensure governance rollups treat `integration_failed` missions as hard failures, preserve failure/artifact/stability metadata, and never count fail-closed missions as completed.
+
+**Actions taken:**
+1. Added failing test:
+    - `tests/test_governance_rollup_consistency.py::test_rollup_marks_integration_failed_as_hard_failure_and_preserves_metadata`
+2. Captured fail-first evidence:
+    - `total_missions_completed` incremented on `integration_failed` when payload included `passed=true`
+    - rollup state/history omitted failure/artifact/stability metadata
+3. Applied minimal patch at governance rollup surface only:
+    - `aqi_governance/state.py`
+       - normalized hard-failure statuses
+       - forced `passed=false` for hard-failure mission results
+       - persisted `summary_type`, `failure_reason`, `failure_class`, `failure_stage`, `artifact_integrity`, `stability_preview`
+    - `aqi_governance/controller.py`
+       - enriched `mission_result` history entries with normalized rollup fields and `mission_completed`
+
+**Validation results:**
+- focused: `pytest tests/test_governance_rollup_consistency.py -q` -> `1 passed`
+- adjacent regression:
+   - `pytest tests/test_aqi_governance.py tests/test_aqi_multi_agent_hardening.py tests/test_qpc_integration.py tests/test_merchant_weekly_mission_loop.py tests/test_merchant_daily_mission_loop.py tests/test_dealflow_conversation_mission.py tests/test_mission_telemetry.py tests/test_mission_telemetry_daily.py tests/test_mission_telemetry_dealflow.py tests/test_mission_artifact_integrity.py tests/test_mission_artifact_integrity_daily.py tests/test_mission_artifact_integrity_dealflow.py tests/test_multi_agent_stability_preview.py -q` -> `52 passed`
+
+**Negative proof:**
+- This is not a soft-failure rollup path; fail-closed statuses are now deterministically non-completing regardless inbound `passed` flag.
+- This is not a widened patch; only governance rollup normalization and rollup history emission were modified.
+
+**Drift metrics (session-local):**
+- IDS: 0.0
+- GAR: 100% for Option C fail-first workflow
+- MFC: 100% (failing test evidence + minimal patch + focused + adjacent regressions + lineage entry)
+
+**Status:**
+- Option C governance rollup consistency slice closed and validated.
+
 ### Session XX: 2026-08-01T00:00:00Z - MR->T Mission Telemetry Integrity (Weekly Harness)
 
 **Objective:** Open and close the Mission-Result -> Telemetry Integrity slice with fail-test-first enforcement on fail-closed orchestrator integration failures.
