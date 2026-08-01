@@ -3500,6 +3500,79 @@ Self-Correction Actions: 0 actions — none severity.
 - [ ] Review gate-level metrics and maintain evidence freshness cadence.
 - [ ] Investigate immediately if any future cycle emits readiness regression alert.
 
+### Session XX: 2026-08-01T00:00:00Z - MR->T Mission Telemetry Integrity (Weekly Harness)
+
+**Objective:** Open and close the Mission-Result -> Telemetry Integrity slice with fail-test-first enforcement on fail-closed orchestrator integration failures.
+
+**Actions taken:**
+1. Added failing telemetry integrity test:
+   - `tests/test_mission_telemetry.py::test_weekly_integration_failed_emits_failure_shaped_governance_result`
+2. Captured fail-first evidence:
+   - observed mismatch where governance mission-result status was `orchestrator_integration_failed` instead of canonical `integration_failed`
+   - observed missing structured failure reason in governance mission-result payload
+3. Applied minimal patch at one telemetry emission surface only:
+   - `missions/merchant_weekly_report/run_weekly_report.py`
+   - extended `_register_governance_result(...)` to accept optional `result_details`
+   - normalized governance mission-result status to `integration_failed` for orchestrator integration failure path
+   - attached structured failure metadata (`failure_reason`, `failure_class`, `failure_stage`)
+
+**Validation results:**
+- focused: `pytest tests/test_mission_telemetry.py -q` -> `1 passed`
+- adjacent regression:
+  - `pytest tests/test_merchant_weekly_mission_loop.py tests/test_qpc_integration.py tests/test_aqi_multi_agent_hardening.py -q` -> `24 passed`
+
+**Negative proof:**
+- This is not speculative telemetry hardening; the slice opened with a red test and closed only after the exact failure mode turned green.
+- This is not orchestrator-contract churn; no orchestrator logic was modified in this slice.
+- This is not broad refactoring drift; patch scope was constrained to one harness telemetry emission point and one new test file.
+
+**Drift metrics (session-local):**
+- IDS: 0.0
+- GAR: 100% for MR->T fail-first workflow
+- MFC: 100% (failing test evidence + minimal patch + focused + adjacent regressions + lineage entry)
+
+**Status:**
+- MR->T (weekly harness) slice closed and validated.
+
+**Next actions:**
+- [ ] Propagate the same telemetry-shape contract to daily/dealflow harnesses in separate narrow slices.
+
+### Session XX: 2026-08-01T00:00:00Z - MR->T Mission Telemetry Integrity (Daily Harness)
+
+**Objective:** Open and close the daily mission harness MR->T telemetry integrity slice with fail-test-first enforcement for fail-closed orchestrator integration failures.
+
+**Actions taken:**
+1. Added failing telemetry integrity test:
+   - `tests/test_mission_telemetry_daily.py::test_daily_integration_failed_emits_failure_shaped_governance_result`
+2. Captured fail-first evidence:
+   - governance mission-result status was emitted as `orchestrator_integration_failed` instead of canonical `integration_failed`
+3. Applied minimal patch at one telemetry emission surface only:
+   - `missions/merchant_daily_snapshot/run_daily_snapshot.py`
+   - extended `_register_governance_result(...)` to accept optional `result_details`
+   - normalized governance mission-result status to `integration_failed` for orchestrator integration failure path
+   - attached structured failure metadata (`failure_reason`, `failure_class`, `failure_stage`)
+
+**Validation results:**
+- focused: `pytest tests/test_mission_telemetry_daily.py -q` -> `1 passed`
+- adjacent regression:
+  - `pytest tests/test_merchant_daily_mission_loop.py tests/test_qpc_integration.py tests/test_aqi_multi_agent_hardening.py -q` -> `24 passed`
+
+**Negative proof:**
+- This is not speculative telemetry hardening; the slice opened with an explicit failing assertion and closed only after status normalization + failure metadata emission.
+- This is not orchestrator rework; orchestrator contracts and routing logic remained unchanged in this slice.
+- This is not broadened patch scope; only one harness telemetry emission point and one new test file were modified.
+
+**Drift metrics (session-local):**
+- IDS: 0.0
+- GAR: 100% for MR->T daily fail-first workflow
+- MFC: 100% (failing test evidence + minimal patch + focused + adjacent regressions + lineage entry)
+
+**Status:**
+- MR->T (daily harness) slice closed and validated.
+
+**Next actions:**
+- [ ] Open dealflow harness MR->T telemetry integrity as a separate narrow slice.
+
 ### Session 45: July 22, 2026 — Full Component Verification Sweep Status
 
 **Objective:** Verify that AQI/Alan components are functioning across governance, pipeline, dashboard, retention, and test layers, and record blockers preventing a full all-green declaration.
