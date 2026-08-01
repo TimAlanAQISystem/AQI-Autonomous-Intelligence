@@ -169,6 +169,14 @@ def main() -> int:
 
         if coordination.get("status") == "integration_failed":
             reason = str((coordination.get("decision") or {}).get("reason", "qpc mission integration failed"))
+            artifact_integrity = {
+                "partial_artifacts_emitted": False,
+                "blocked_artifacts": [
+                    "dealflow_conversation_summary.json",
+                    "dealflow_conversation_summary.md",
+                    "operator_checkpoint_final_publish.json",
+                ],
+            }
             _append_jsonl(
                 output_dir / "mission_runs.jsonl",
                 {
@@ -177,6 +185,7 @@ def main() -> int:
                     "payload": str(Path(args.payload)).replace("\\", "/"),
                     "use_orchestrator": True,
                     "error": reason,
+                    "artifact_integrity": artifact_integrity,
                 },
             )
             _register_governance_result(
@@ -189,6 +198,7 @@ def main() -> int:
                     "failure_reason": reason,
                     "failure_class": "integration_failed",
                     "failure_stage": "orchestrator_coordination",
+                    "artifact_integrity": artifact_integrity,
                 },
             )
             print(f"Orchestrator integration failed: {reason}")
