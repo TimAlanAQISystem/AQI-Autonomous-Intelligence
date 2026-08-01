@@ -3557,6 +3557,40 @@ Self-Correction Actions: 0 actions — none severity.
 **Status:**
 - MR->T (dealflow harness) slice closed and validated.
 
+### Session XX: 2026-08-01T00:00:00Z - Mission-Artifact Integrity (Weekly Harness)
+
+**Objective:** Open Option A (Mission-Artifact Integrity) with one fail-first test and ensure fail-closed integration failures emit explicit no-partial-artifact telemetry.
+
+**Actions taken:**
+1. Added failing test:
+   - `tests/test_mission_artifact_integrity.py::test_weekly_integration_failure_emits_artifact_integrity_and_no_partial_outputs`
+2. Captured fail-first evidence:
+   - weekly integration-failed run event omitted `artifact_integrity` payload
+3. Applied minimal patch at one emission surface only:
+   - `missions/merchant_weekly_report/run_weekly_report.py`
+   - extended `_build_run_event(...)` with optional `artifact_integrity`
+   - emitted `artifact_integrity` for `orchestrator_integration_failed` including:
+     - `partial_artifacts_emitted=false`
+     - explicit `blocked_artifacts` manifest
+
+**Validation results:**
+- focused: `pytest tests/test_mission_artifact_integrity.py -q` -> `1 passed`
+- adjacent regression:
+  - `pytest tests/test_merchant_weekly_mission_loop.py tests/test_mission_telemetry.py tests/test_qpc_integration.py tests/test_aqi_multi_agent_hardening.py -q` -> `25 passed`
+
+**Negative proof:**
+- This is not speculative artifact hygiene; the slice opened with a red KeyError on missing artifact-integrity telemetry and closed only after explicit emission.
+- This is not mission-flow widening; no orchestrator or parser/planner/verifier logic changed.
+- This is not cross-harness bundling; patch scope remained one harness and one new test file.
+
+**Drift metrics (session-local):**
+- IDS: 0.0
+- GAR: 100% for Option A weekly fail-first workflow
+- MFC: 100% (failing test evidence + minimal patch + focused + adjacent regressions + lineage entry)
+
+**Status:**
+- Option A weekly artifact-integrity slice closed and validated.
+
 ### Session XX: 2026-08-01T00:00:00Z - MR->T Mission Telemetry Integrity (Weekly Harness)
 
 **Objective:** Open and close the Mission-Result -> Telemetry Integrity slice with fail-test-first enforcement on fail-closed orchestrator integration failures.
