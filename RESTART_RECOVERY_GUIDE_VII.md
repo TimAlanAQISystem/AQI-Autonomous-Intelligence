@@ -3524,6 +3524,39 @@ Self-Correction Actions: 0 actions — none severity.
 **Status:**
 - Weekly MR->T slice is now commit-closed with explicit lineage boundary.
 
+### Session XX: 2026-08-01T00:00:00Z - MR->T Mission Telemetry Integrity (Dealflow Harness)
+
+**Objective:** Open and close the dealflow mission harness MR->T telemetry integrity slice with fail-test-first enforcement for fail-closed orchestrator integration failures.
+
+**Actions taken:**
+1. Added failing telemetry integrity test:
+   - `tests/test_mission_telemetry_dealflow.py::test_dealflow_integration_failed_emits_failure_shaped_governance_result`
+2. Captured fail-first evidence:
+   - governance mission-result status emitted as `orchestrator_integration_failed` instead of canonical `integration_failed`
+3. Applied minimal patch at one telemetry emission surface only:
+   - `missions/dealflow_conversation/run_dealflow_mission.py`
+   - extended `_register_governance_result(...)` to accept optional `result_details`
+   - normalized governance mission-result status to `integration_failed` for orchestrator integration failure path
+   - attached structured failure metadata (`failure_reason`, `failure_class`, `failure_stage`)
+
+**Validation results:**
+- focused: `pytest tests/test_mission_telemetry_dealflow.py -q` -> `1 passed`
+- adjacent regression:
+  - `pytest tests/test_dealflow_conversation_mission.py tests/test_qpc_integration.py tests/test_aqi_multi_agent_hardening.py -q` -> `22 passed`
+
+**Negative proof:**
+- This is not speculative telemetry hardening; the slice opened with a red assertion and closed only after canonical status normalization + structured failure metadata emission.
+- This is not orchestrator rework; orchestrator contracts and routing logic remained unchanged in this slice.
+- This is not widened scope; only one harness emission point and one new test file were modified.
+
+**Drift metrics (session-local):**
+- IDS: 0.0
+- GAR: 100% for MR->T dealflow fail-first workflow
+- MFC: 100% (failing test evidence + minimal patch + focused + adjacent regressions + lineage entry)
+
+**Status:**
+- MR->T (dealflow harness) slice closed and validated.
+
 ### Session XX: 2026-08-01T00:00:00Z - MR->T Mission Telemetry Integrity (Weekly Harness)
 
 **Objective:** Open and close the Mission-Result -> Telemetry Integrity slice with fail-test-first enforcement on fail-closed orchestrator integration failures.
