@@ -133,5 +133,7 @@ def test_blocked_agent_coordination_requires_operator_review(monkeypatch) -> Non
 
     assert response.checkpoint_id == "OP-CONVO-VALUE"
     assert response.needs_operator_review is True
+    assert response.stage == "coordination_degraded"
+    assert "business value is measurable" in response.response_text.lower()
     assert response.telemetry["agent_coordination"]["status"] == "blocked"
     assert "BACKPRESSURE_QUEUE_FULL" in response.telemetry["governance"]["reason"]

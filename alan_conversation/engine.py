@@ -202,7 +202,7 @@ class ConversationEngine:
             coordination_reason = str((agent_coordination or {}).get("reason", "agent coordination degraded"))
             governance = GovernanceDecision(
                 checkpoint_id=governance.checkpoint_id,
-                stage=governance.stage,
+                stage="coordination_degraded",
                 allowed=True,
                 needs_operator_review=True,
                 reason=f"{governance.reason} Agent coordination: {coordination_reason}",
