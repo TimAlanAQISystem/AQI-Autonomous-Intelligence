@@ -8,6 +8,7 @@ from typing import Any, Dict, List
 
 try:
     from aqi_agents.orchestrator import MultiAgentOrchestrator
+    from aqi_agents.stability_preview import build_stability_preview
     from aqi_governance.controller import GlobalGovernanceController
     from qpc.context import from_conversation_turn as build_qpc_context_from_turn
     from qpc.core import run_qpc_analysis, run_qpc_decision, run_qpc_plan
@@ -33,6 +34,10 @@ except ImportError:
         from aqi_agents.orchestrator import MultiAgentOrchestrator
     except ImportError:
         MultiAgentOrchestrator = None  # type: ignore
+    try:
+        from aqi_agents.stability_preview import build_stability_preview
+    except ImportError:
+        build_stability_preview = None  # type: ignore
     try:
         from aqi_governance.controller import GlobalGovernanceController
     except ImportError:
@@ -271,6 +276,11 @@ class ConversationEngine:
             "negotiation_actions": negotiation_actions,
             "close_actions": close_actions,
             "agent_coordination": agent_coordination,
+            "stability_preview": (
+                build_stability_preview(agent_coordination)
+                if build_stability_preview is not None
+                else {"is_stable": True, "summary_type": "preview_unavailable"}
+            ),
             "qpc": qpc_payload,
             "stage": self.state.stage,
             "timestamp_utc": turn.timestamp_utc,
