@@ -2459,6 +2459,337 @@ Self-Correction Actions: 0 actions — none severity.
 **Status:**
 - V-8 initiated with readiness pass and planning packet activated.
 
+### Session 36: August 1, 2026 — AQI Engineering Reset And VS Readiness Audit
+
+**Objective:** Re-anchor on executable AQI upgrade work, verify local development readiness, and confirm the active governance/orchestration slices before opening a new implementation seam.
+
+**Actions taken:**
+1. Audited workspace runtime/tooling state:
+   - `.venv\Scripts\python.exe` = Python 3.11.8
+   - `.venv311\Scripts\python.exe` = Python 3.11.8
+   - `py` launcher default = Python 3.14.0
+   - `node` = v24.11.0
+   - `npm` = 11.6.1
+   - `dotnet` not installed or not on PATH
+2. Audited repository state:
+   - branch = `master` ahead of `origin/master` by 11 commits
+   - worktree is heavily dirty with many tracked modifications and untracked governance artifacts
+   - no submodule status reported
+3. Verified Python project readiness:
+   - root `pyproject.toml` present
+   - import check passed for `aqi`, `aqi.governance`, and `alan_conversation.run_conversation`
+   - `.venv` dependency health check via `pip check` passed
+4. Ran focused executable validation on active AQI upgrade surfaces:
+   - `tests/test_aqi_governance.py` -> `7 passed`
+   - `tests/test_aqi_multi_agent.py` + `tests/test_aqi_multi_agent_hardening.py` + `tests/test_aqi_agent_observability.py` + `tests/test_qpc_integration.py` -> `26 passed`
+5. Checked active code-health surfaces:
+   - no diagnostics in `aqi_governance/controller.py`
+   - no diagnostics in `aqi_agents/orchestrator.py`
+
+**Validation results:**
+- Python AQI workspace is locally runnable for governance/orchestration work.
+- Governance gate, telemetry, QPC integration, and multi-agent synchronization tests are green.
+- No immediate failing signal exists in the validated AQI slices.
+
+**Blocking conditions:**
+- `.NET SDK` unavailable, so any Visual Studio /.NET path is not currently build-ready.
+- Default `py` launcher points at Python 3.14.0, so pinned `.venv` / `.venv311` must remain the execution path.
+- Worktree is intentionally non-clean; avoid repo-wide mutation without narrowing to one owned slice.
+
+**Negative proof:**
+- This is not a runtime mutation session; no production call path was modified.
+- This is not a false-ready claim; readiness was backed by interpreter, import, dependency, and focused test execution.
+- This is not evidence of a broken governance/orchestration seam; the currently targeted AQI upgrade tests passed cleanly.
+
+**Drift metrics (session-local):**
+- IDS: 0.0 for audited governance/orchestration slice
+- GAR: 100% for the focused validated slice
+- MFC: 100% (runtime audit + import check + dependency check + focused tests + RRG lineage)
+
+**Next actions:**
+- [ ] Install or expose `.NET SDK` if a Visual Studio /.NET track is required.
+- [ ] Choose one executable AQI slice for the next code change: governance hardening, workflow determinism, or teleagent coordination.
+- [ ] Keep all Python execution pinned to `.venv\Scripts\python.exe` or `.venv311\Scripts\python.exe`.
+
+### Session 37: August 1, 2026 — Workflow Determinism Slice: Mission Partial-Blocking Contract
+
+**Objective:** Make multi-agent mission coordination report partial delivery failure deterministically instead of returning a false-green `coordinated` status when one or more roles are blocked.
+
+**Actions taken:**
+1. Added focused hardening test in `tests/test_aqi_multi_agent_hardening.py`:
+   - pre-acquires `planner_agent` inflight slot
+   - runs `coordinate_mission("merchant_weekly_report", ...)`
+   - asserts top-level mission status reflects partial blocking
+2. Confirmed the failure before patching:
+   - observed `status="coordinated"` despite blocked `planner_agent`
+3. Updated `aqi_agents/orchestrator.py` mission summary logic:
+   - tracks `delivered_roles`
+   - tracks `blocked_roles`
+   - returns `status="partially_blocked"` when delivery is mixed
+   - returns `status="blocked"` when all routed roles are blocked
+   - preserves `status="coordinated"` for fully delivered missions
+
+**Validation results:**
+- focused hardening slice: `6 passed`
+- broader adjacent orchestration regression:
+  - `tests/test_aqi_multi_agent.py`
+  - `tests/test_aqi_multi_agent_hardening.py`
+  - `tests/test_aqi_agent_observability.py`
+  - `tests/test_qpc_integration.py`
+  -> `27 passed`
+
+**Negative proof:**
+- This is not a routing-policy rewrite; role selection order and governance gate behavior are unchanged.
+- This is not a silent status contract regression; the new test proves blocked mission roles can no longer be misreported as fully coordinated.
+- This is not scope drift into teleagent or relay code; the slice is isolated to mission coordination summary behavior.
+
+**Drift metrics (session-local):**
+- IDS: 0.0 for the workflow determinism slice
+- GAR: 100% for focused and adjacent orchestration validations
+- MFC: 100% (failing test + local fix + focused rerun + broader regression + RRG lineage)
+
+**Next actions:**
+- [ ] Decide whether mission harnesses should treat `partially_blocked` as a soft warning or a hard non-zero exit condition.
+- [ ] Open the next bounded slice on teleagent coordination or mission-harness handling of partial orchestration outcomes.
+
+### Session 38: August 1, 2026 — Weekly Mission Harness Determinism: Incomplete Orchestrator Routing
+
+**Objective:** Prevent the weekly mission harness from proceeding to parsing, planning, verification, and publish when orchestrator coordination reports incomplete delivery.
+
+**Actions taken:**
+1. Added a focused CLI-path test in `tests/test_merchant_weekly_mission_loop.py`:
+   - injects shim `aqi_agents.orchestrator` and `aqi_governance.controller` modules through `PYTHONPATH`
+   - forces `coordinate_mission(...)` to return `status="partially_blocked"`
+   - verifies the harness must stop before normal mission execution completes
+2. Confirmed the failure before patching:
+   - observed weekly mission returned `0`
+   - observed publish path still completed despite partial orchestrator blocking
+3. Updated `missions/merchant_weekly_report/run_weekly_report.py`:
+   - handles `partially_blocked`
+   - handles `blocked`
+   - appends explicit mission run statuses:
+     - `orchestrator_partially_blocked`
+     - `orchestrator_blocked`
+   - registers governance result with failed outcome metrics
+   - exits before parser/planner path on incomplete routing
+
+**Validation results:**
+- focused weekly harness slice: `7 passed`
+- adjacent regression with orchestration suite:
+  - `tests/test_merchant_weekly_mission_loop.py`
+  - `tests/test_aqi_multi_agent.py`
+  - `tests/test_aqi_multi_agent_hardening.py`
+  - `tests/test_aqi_agent_observability.py`
+  - `tests/test_qpc_integration.py`
+  -> `34 passed`
+
+**Negative proof:**
+- This is not a planner/verifier rewrite; the weekly mission content path is unchanged when orchestration is healthy.
+- This is not silent orchestration degradation; incomplete routing is now surfaced as a non-success outcome before publish.
+- This is not a broad mission-framework change; the slice is intentionally limited to the weekly harness.
+
+**Drift metrics (session-local):**
+- IDS: 0.0 for the weekly harness determinism slice
+- GAR: 100% across focused and adjacent validations
+- MFC: 100% (failing CLI-path test + weekly harness patch + rerun + adjacent regression + RRG lineage)
+
+**Next actions:**
+- [ ] Apply the same incomplete-routing handling to `merchant_daily_snapshot` and `dealflow_conversation` if the harness contract should be uniform across missions.
+- [ ] Open the teleagent coordination slice once mission-harness contract parity is complete.
+
+### Session 39: August 1, 2026 — Mission Harness Determinism Parity: Daily + Dealflow
+
+**Objective:** Complete mission-harness parity so all orchestrator-backed mission entrypoints stop on incomplete routing instead of silently treating `partially_blocked` as success.
+
+**Actions taken:**
+1. Added focused CLI-path tests:
+   - `tests/test_merchant_daily_mission_loop.py`
+   - `tests/test_dealflow_conversation_mission.py`
+2. Each test injects shim `aqi_agents.orchestrator` and `aqi_governance.controller` modules via `PYTHONPATH` to force:
+   - `status="partially_blocked"`
+   - deterministic blocked-role metadata
+3. Confirmed both failures before patching:
+   - daily harness returned `0` and published despite incomplete routing
+   - dealflow harness returned `0` and completed mission summary generation despite incomplete routing
+4. Updated `missions/merchant_daily_snapshot/run_daily_snapshot.py`:
+   - handles `partially_blocked`
+   - handles `blocked`
+   - appends explicit `orchestrator_partially_blocked` / `orchestrator_blocked` statuses
+   - registers failed governance result
+   - exits before parser/planner path on incomplete routing
+5. Updated `missions/dealflow_conversation/run_dealflow_mission.py`:
+   - handles `partially_blocked`
+   - handles `blocked`
+   - appends explicit `orchestrator_partially_blocked` / `orchestrator_blocked` statuses
+   - registers failed governance result
+   - exits before parser/planner path on incomplete routing
+
+**Validation results:**
+- focused daily harness slice: `7 passed`
+- focused dealflow harness slice: `5 passed`
+- full determinism parity regression with adjacent orchestration suite:
+  - `tests/test_merchant_weekly_mission_loop.py`
+  - `tests/test_merchant_daily_mission_loop.py`
+  - `tests/test_dealflow_conversation_mission.py`
+  - `tests/test_aqi_multi_agent.py`
+  - `tests/test_aqi_multi_agent_hardening.py`
+  - `tests/test_aqi_agent_observability.py`
+  - `tests/test_qpc_integration.py`
+  -> `46 passed`
+
+**Negative proof:**
+- This is not a planner/verifier/output rewrite; healthy orchestrator paths still proceed normally.
+- This is not mission-specific drift; weekly, daily, and dealflow now share the same incomplete-routing contract.
+- This is not silent publish-on-degradation; all three harnesses now fail closed before content generation when orchestration is incomplete.
+
+**Drift metrics (session-local):**
+- IDS: 0.0 for daily/dealflow parity slice
+- GAR: 100% across focused and full parity validations
+- MFC: 100% (failing tests + two harness patches + focused reruns + full regression + RRG lineage)
+
+**Next actions:**
+- [ ] Create one narrow commit for the mission-harness parity slice if this determinism track should be checkpointed now.
+- [ ] Open the teleagent coordination slice with a failing test first; mission-harness status parity is now complete.
+
+### Session 40: August 1, 2026 — Teleagent Coordination Slice: Blocked Turn Requires Operator Review
+
+**Objective:** Ensure the live conversation turn path does not silently ignore blocked internal agent coordination during multi-agent routing.
+
+**Actions taken:**
+1. Added a focused engine-level test in `tests/test_alan_conversation.py`:
+   - starts a real `ConversationEngine`
+   - monkeypatches `multi_agent_orchestrator.coordinate_turn(...)` to return:
+     - `status="blocked"`
+     - `reason="BACKPRESSURE_QUEUE_FULL"`
+   - verifies the turn must require operator review even when base conversation governance would otherwise allow the turn
+2. Confirmed the failure before patching:
+   - live turn returned normal value-path response
+   - `needs_operator_review` remained `False`
+3. Updated `alan_conversation/engine.py`:
+   - inspects `agent_coordination` status after internal coordination
+   - treats `blocked`, `failed`, and `error` as degraded coordination states
+   - upgrades the turn to `needs_operator_review=True` while preserving the existing checkpoint and stage
+   - appends coordination reason into the governance reason field for telemetry and operator traceability
+
+**Validation results:**
+- focused teleagent slice: `14 passed`
+- adjacent regression with conversation + orchestration suite:
+  - `tests/test_alan_conversation.py`
+  - `tests/test_alan_conversation_negotiation_close.py`
+  - `tests/test_aqi_multi_agent.py`
+  - `tests/test_aqi_multi_agent_hardening.py`
+  - `tests/test_aqi_agent_observability.py`
+  - `tests/test_qpc_integration.py`
+  -> `45 passed`
+
+**Negative proof:**
+- This is not a response-routing rewrite; intent detection, checkpoint selection, and normal conversation generation remain intact.
+- This is not silent coordination degradation; blocked internal routing now changes the operator-review posture of the live turn.
+- This is not a broad relay rewrite; the slice is localized to the live conversation engine's governance merge point.
+
+**Drift metrics (session-local):**
+- IDS: 0.0 for the teleagent coordination slice
+- GAR: 100% across focused and adjacent validations
+- MFC: 100% (failing test + engine patch + focused rerun + adjacent regression + RRG lineage)
+
+**Next actions:**
+- [ ] Decide whether blocked teleagent coordination should also change response text or checkpoint stage, not just operator-review posture.
+- [ ] Continue teleagent coordination with a narrower relay/backpressure seam if deeper runtime handling is needed.
+
+### Session 41: August 1, 2026 — Teleagent Coordination Slice: Stage Escalation On Blocked Internal Routing
+
+**Objective:** Make blocked internal multi-agent coordination machine-actionable in the live turn path by escalating the stage to `coordination_degraded` while preserving checkpoint ID and merchant-facing response text.
+
+**Actions taken:**
+1. Tightened the existing blocked-coordination test in `tests/test_alan_conversation.py` to require:
+   - `needs_operator_review=True`
+   - `stage == "coordination_degraded"`
+   - unchanged value-path response content
+   - unchanged checkpoint ID
+   - coordination reason retained in telemetry
+2. Confirmed the failure before patching:
+   - turn remained in `conversation_value`
+   - operator-review posture was present, but stage signal was not escalated
+3. Updated `alan_conversation/engine.py` governance merge:
+   - on internal coordination `blocked`, `failed`, or `error`
+   - preserve checkpoint ID
+   - preserve normal response path
+   - set stage to `coordination_degraded`
+   - keep operator-review posture and coordination reason in governance telemetry
+
+**Validation results:**
+- focused stage-escalation slice: `14 passed`
+- adjacent regression with conversation + orchestration suite:
+  - `tests/test_alan_conversation.py`
+  - `tests/test_alan_conversation_negotiation_close.py`
+  - `tests/test_aqi_multi_agent.py`
+  - `tests/test_aqi_multi_agent_hardening.py`
+  - `tests/test_aqi_agent_observability.py`
+  - `tests/test_qpc_integration.py`
+  -> `45 passed`
+
+**Negative proof:**
+- This is not merchant-facing response degradation; response text remains on the normal conversational path.
+- This is not checkpoint churn; checkpoint IDs remain intent/governance derived.
+- This is not silent runtime degradation; blocked internal routing now produces a structured degraded-stage signal for supervision and recovery.
+
+**Drift metrics (session-local):**
+- IDS: 0.0 for teleagent stage-escalation slice
+- GAR: 100% across focused and adjacent validations
+- MFC: 100% (failing test + local engine patch + focused rerun + adjacent regression + RRG lineage)
+
+**Next actions:**
+- [ ] Create a narrow commit for the stage-escalation teleagent slice if this behavior should be checkpointed now.
+- [ ] Continue teleagent coordination on a deeper relay/backpressure seam once stage semantics are accepted.
+
+### Session 42: August 1, 2026 — Teleagent Coordination Slice: Repeated Blocked Routing Suppresses Dealflow Trigger
+
+**Objective:** Ensure repeated blocked internal coordination is not silently treated as stable enough to emit dealflow mission triggers on later turns.
+
+**Actions taken:**
+1. Added a focused repeated-turn test in `tests/test_alan_conversation.py`:
+   - first degraded turn returns `BACKPRESSURE_QUEUE_FULL`
+   - second degraded turn returns `CONCURRENCY_LIMIT_REACHED`
+   - second turn uses closing-signal language that would normally emit `dealflow_conversation`
+   - asserts:
+     - both turns remain `coordination_degraded`
+     - checkpoint remains `OP-CONVO-CLOSE`
+     - operator review remains required
+     - `dealflow_conversation` is suppressed from mission actions
+     - latest coordination reason remains in governance telemetry
+2. Confirmed the failure before patching:
+   - blocked closing turn still emitted `dealflow_conversation`
+3. Updated `alan_conversation/engine.py`:
+   - strips stability-dependent `dealflow_conversation` trigger on turns where internal coordination is `blocked`, `failed`, or `error`
+   - adds coordination-degraded penalties to `_stability_signal_preview()`
+   - adds coordination-degraded penalties to `_stability_acceptable()`
+   - preserves checkpoint, response path, and operator-review posture
+
+**Validation results:**
+- focused repeated-blocking slice: `15 passed`
+- adjacent regression with conversation + orchestration suite:
+  - `tests/test_alan_conversation.py`
+  - `tests/test_alan_conversation_negotiation_close.py`
+  - `tests/test_aqi_multi_agent.py`
+  - `tests/test_aqi_multi_agent_hardening.py`
+  - `tests/test_aqi_agent_observability.py`
+  - `tests/test_qpc_integration.py`
+  -> `46 passed`
+
+**Negative proof:**
+- This is not a merchant-response rewrite; response text remains stable under degraded coordination.
+- This is not checkpoint escalation creep; checkpoint IDs remain governed by conversation intent/safety logic.
+- This is not swallowed backpressure; repeated degraded coordination now has both immediate and temporal impact on mission-trigger stability.
+
+**Drift metrics (session-local):**
+- IDS: 0.0 for repeated blocked-routing slice
+- GAR: 100% across focused and adjacent validations
+- MFC: 100% (failing repeated-turn test + local stability patch + focused rerun + adjacent regression + RRG lineage)
+
+**Next actions:**
+- [ ] Create a narrow commit for the repeated blocked-routing teleagent slice if this behavior should be checkpointed now.
+- [ ] Continue into a deeper relay/backpressure propagation seam only if runtime evidence shows additional leakage beyond the conversation engine.
+
 **Next actions:**
 - [ ] Generate V-8 detailed governance extension specifications under bounded seams.
 - [ ] Define first executable V-8 slice only after governance extension acceptance criteria are frozen.
