@@ -2790,6 +2790,71 @@ Self-Correction Actions: 0 actions — none severity.
 - [ ] Create a narrow commit for the repeated blocked-routing teleagent slice if this behavior should be checkpointed now.
 - [ ] Continue into a deeper relay/backpressure propagation seam only if runtime evidence shows additional leakage beyond the conversation engine.
 
+### Session 43: August 1, 2026 — QPC Mission Integration Fail-Closed Contract
+
+**Objective:** Ensure QPC integration errors during orchestrated mission coordination fail closed with explicit governance-visible outcomes instead of allowing partial or full mission execution.
+
+**Actions taken:**
+1. Added focused merge-point test in `tests/test_qpc_integration.py`:
+   - forces `MultiAgentOrchestrator._qpc_payload_for_task(...)` to return `{"error": "forced qpc mission failure"}`
+   - asserts `coordinate_mission(...)` returns:
+     - `status="integration_failed"`
+     - empty `roles`
+     - empty `messages`
+     - explicit failure reason in `decision`
+2. Confirmed the failure before patching:
+   - mission coordination still returned `coordinated`
+3. Updated `aqi_agents/orchestrator.py`:
+   - detects mission-level QPC error payloads before any role dispatch
+   - returns `integration_failed`
+   - emits explicit `QPC_INTEGRATION_FAILED` decision metadata
+   - prevents any mission role from starting on integration failure
+4. Added harness parity tests for:
+   - `tests/test_merchant_weekly_mission_loop.py`
+   - `tests/test_merchant_daily_mission_loop.py`
+   - `tests/test_dealflow_conversation_mission.py`
+   Each test injects an orchestrator returning `status="integration_failed"` and asserts the mission loop exits before artifact generation.
+5. Confirmed all three harnesses initially failed:
+   - weekly returned `0` and published
+   - daily returned `0` and published
+   - dealflow returned `0` and completed mission summary generation
+6. Updated mission harnesses:
+   - `missions/merchant_weekly_report/run_weekly_report.py`
+   - `missions/merchant_daily_snapshot/run_daily_snapshot.py`
+   - `missions/dealflow_conversation/run_dealflow_mission.py`
+   to:
+   - treat `integration_failed` as `orchestrator_integration_failed`
+   - register failed governance results
+   - stop before parser/planner/verifier/publish work
+   - return exit code `10`
+
+**Validation results:**
+- focused QPC integration slice: `10 passed`
+- focused mission-loop parity slice: `22 passed`
+- adjacent regression with QPC + mission harnesses + orchestration suite:
+  - `tests/test_qpc_integration.py`
+  - `tests/test_merchant_weekly_mission_loop.py`
+  - `tests/test_merchant_daily_mission_loop.py`
+  - `tests/test_dealflow_conversation_mission.py`
+  - `tests/test_aqi_multi_agent.py`
+  - `tests/test_aqi_multi_agent_hardening.py`
+  - `tests/test_aqi_agent_observability.py`
+  -> `50 passed`
+
+**Negative proof:**
+- This is not a soft-degrade path; QPC mission integration errors now block mission execution before partial work begins.
+- This is not harness inconsistency; weekly, daily, and dealflow now share the same fail-closed integration contract.
+- This is not speculative relay work; the slice is isolated to the QPC-to-mission merge point and downstream mission harness handling.
+
+**Drift metrics (session-local):**
+- IDS: 0.0 for the QPC mission integration slice
+- GAR: 100% across focused and adjacent validations
+- MFC: 100% (failing test + merge-point patch + harness parity tests + harness patches + full regression + RRG lineage)
+
+**Next actions:**
+- [ ] Create a narrow code commit for the QPC mission fail-closed slice.
+- [ ] Create a separate lineage checkpoint commit for this RRG entry if the slice is accepted.
+
 **Next actions:**
 - [ ] Generate V-8 detailed governance extension specifications under bounded seams.
 - [ ] Define first executable V-8 slice only after governance extension acceptance criteria are frozen.
