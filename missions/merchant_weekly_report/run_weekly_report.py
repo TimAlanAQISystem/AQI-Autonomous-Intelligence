@@ -115,8 +115,9 @@ def _build_run_event(
     publish_approved: bool,
     published: bool,
     error: Optional[str] = None,
+    artifact_integrity: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
-    return {
+    payload = {
         "timestamp_utc": _utc_now(),
         "run_id": run_id,
         "status": status,
@@ -140,6 +141,9 @@ def _build_run_event(
         "published": published,
         "error": error,
     }
+    if artifact_integrity is not None:
+        payload["artifact_integrity"] = artifact_integrity
+    return payload
 
 
 def _format_pct(value: float) -> str:
@@ -413,6 +417,15 @@ def main() -> int:
                     publish_approved=publish_approved,
                     published=published,
                     error=reason,
+                    artifact_integrity={
+                        "partial_artifacts_emitted": False,
+                        "blocked_artifacts": [
+                            "merchant_weekly_report.json",
+                            "merchant_weekly_report.md",
+                            "merchant_weekly_report.pdf",
+                            "operator_checkpoint_final_publish.json",
+                        ],
+                    },
                 ),
             )
             _register_governance_result(
