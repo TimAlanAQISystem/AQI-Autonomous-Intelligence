@@ -200,6 +200,11 @@ class ConversationEngine:
         coordination_status = str((agent_coordination or {}).get("status", "")).lower()
         if coordination_status in {"blocked", "failed", "error"} and governance.allowed:
             coordination_reason = str((agent_coordination or {}).get("reason", "agent coordination degraded"))
+            mission_actions = [
+                action
+                for action in mission_actions
+                if action.get("mission_id") != "dealflow_conversation"
+            ]
             governance = GovernanceDecision(
                 checkpoint_id=governance.checkpoint_id,
                 stage="coordination_degraded",
@@ -499,9 +504,13 @@ class ConversationEngine:
 
         governed_turns = sum(1 for turn in self.state.turns if turn.governance.allowed)
         escalation_count = sum(1 for turn in self.state.turns if turn.governance.checkpoint_id == "OP-CONVO-ESCALATE")
+        coordination_degraded_count = sum(
+            1 for turn in self.state.turns if turn.governance.stage == "coordination_degraded"
+        )
         base = governed_turns / max(1, len(self.state.turns))
         penalty = min(0.4, escalation_count * 0.1)
-        return max(0.0, min(1.0, base - penalty))
+        coordination_penalty = min(0.3, coordination_degraded_count * 0.15)
+        return max(0.0, min(1.0, base - penalty - coordination_penalty))
 
     def _escalation_rate_preview(self) -> float:
         if not self.state.turns:
@@ -541,9 +550,16 @@ class ConversationEngine:
         if governance.checkpoint_id == "OP-CONVO-ESCALATE":
             escalation_count += 1
 
+        coordination_degraded_count = sum(
+            1 for turn in self.state.turns if turn.governance.stage == "coordination_degraded"
+        )
+        if governance.stage == "coordination_degraded":
+            coordination_degraded_count += 1
+
         base_reliability = governed_turns / total_turns
         escalation_penalty = min(0.4, escalation_count * 0.1)
-        stability_signal = max(0.0, base_reliability - escalation_penalty)
+        coordination_penalty = min(0.3, coordination_degraded_count * 0.15)
+        stability_signal = max(0.0, base_reliability - escalation_penalty - coordination_penalty)
         return stability_signal >= 0.7
 
     @staticmethod

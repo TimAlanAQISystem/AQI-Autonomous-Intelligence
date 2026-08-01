@@ -137,3 +137,35 @@ def test_blocked_agent_coordination_requires_operator_review(monkeypatch) -> Non
     assert "business value is measurable" in response.response_text.lower()
     assert response.telemetry["agent_coordination"]["status"] == "blocked"
     assert "BACKPRESSURE_QUEUE_FULL" in response.telemetry["governance"]["reason"]
+
+
+def test_repeated_blocked_coordination_suppresses_dealflow_trigger(monkeypatch) -> None:
+    engine = _new_engine("coordination-repeated-blocked")
+    engine.handle_turn("Hello")
+
+    coordination_reasons = iter([
+        "BACKPRESSURE_QUEUE_FULL",
+        "CONCURRENCY_LIMIT_REACHED",
+    ])
+
+    def _blocked(*args, **kwargs):
+        return {
+            "status": "blocked",
+            "reason": next(coordination_reasons),
+            "target_role": "negotiator_agent",
+        }
+
+    assert engine.multi_agent_orchestrator is not None
+    monkeypatch.setattr(engine.multi_agent_orchestrator, "coordinate_turn", _blocked)
+
+    first_blocked = engine.handle_turn("What value can you provide?")
+    second_blocked = engine.handle_turn("We should move forward and start this proposal now.")
+
+    mission_ids = [entry.get("mission_id") for entry in second_blocked.mission_actions]
+
+    assert first_blocked.stage == "coordination_degraded"
+    assert second_blocked.stage == "coordination_degraded"
+    assert second_blocked.checkpoint_id == "OP-CONVO-CLOSE"
+    assert second_blocked.needs_operator_review is True
+    assert "dealflow_conversation" not in mission_ids
+    assert "CONCURRENCY_LIMIT_REACHED" in second_blocked.telemetry["governance"]["reason"]
