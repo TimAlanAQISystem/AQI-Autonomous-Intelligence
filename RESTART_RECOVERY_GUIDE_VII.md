@@ -3500,6 +3500,30 @@ Self-Correction Actions: 0 actions — none severity.
 - [ ] Review gate-level metrics and maintain evidence freshness cadence.
 - [ ] Investigate immediately if any future cycle emits readiness regression alert.
 
+### Session XX: 2026-08-01T00:00:00Z - MR->T Weekly Slice Commit Closure Checkpoint
+
+**Objective:** Finalize weekly MR->T telemetry integrity slice with explicit commit-boundary lineage after daily slice completion.
+
+**Commit checkpoint:**
+- code/test commit: `9c11713` (`aqi: normalize weekly mission failure telemetry shape`)
+
+**Validation evidence (pre-commit rerun):**
+- focused: `pytest tests/test_mission_telemetry.py -q` -> `1 passed`
+- adjacent regression:
+   - `pytest tests/test_merchant_weekly_mission_loop.py tests/test_qpc_integration.py tests/test_aqi_multi_agent_hardening.py -q` -> `24 passed`
+
+**Negative proof:**
+- This is not an unvalidated checkpoint; focused and adjacent suites were re-run immediately before commit closure.
+- This is not patch widening; closure references the already-bounded weekly harness emission surface and weekly telemetry test only.
+
+**Drift metrics (session-local):**
+- IDS: 0.0
+- GAR: 100% for weekly MR->T closure path
+- MFC: 100% (focused + adjacent reruns + code/test commit checkpoint + lineage commit split)
+
+**Status:**
+- Weekly MR->T slice is now commit-closed with explicit lineage boundary.
+
 ### Session XX: 2026-08-01T00:00:00Z - MR->T Mission Telemetry Integrity (Weekly Harness)
 
 **Objective:** Open and close the Mission-Result -> Telemetry Integrity slice with fail-test-first enforcement on fail-closed orchestrator integration failures.
