@@ -3660,6 +3660,41 @@ Self-Correction Actions: 0 actions — none severity.
 **Status:**
 - Option A dealflow artifact-integrity slice closed and validated.
 
+### Session XX: 2026-08-01T00:00:00Z - Option B Multi-Agent Stability Preview Parity
+
+**Objective:** Ensure multi-agent stability preview reflects fail-closed mission semantics (integration failure + artifact-integrity metadata) instead of soft-stable interpretation.
+
+**Actions taken:**
+1. Added failing test:
+   - `tests/test_multi_agent_stability_preview.py::test_stability_preview_marks_integration_failed_as_unstable`
+2. Captured fail-first evidence:
+   - telemetry omitted `stability_preview` on integration-failed coordination payload
+3. Applied minimal patch at stability-preview surface only:
+   - created `aqi_agents/stability_preview.py` with `build_stability_preview(...)`
+   - wired preview output into `alan_conversation/engine.py` telemetry assembly
+   - failure preview now emits:
+     - `is_stable=false`
+     - `summary_type=integration_failed`
+     - `failure_reason`, `failure_class`, `failure_stage`
+     - `artifact_integrity`
+
+**Validation results:**
+- focused: `pytest tests/test_multi_agent_stability_preview.py -q` -> `1 passed`
+- adjacent regression:
+  - `pytest tests/test_aqi_multi_agent_hardening.py tests/test_qpc_integration.py tests/test_merchant_weekly_mission_loop.py tests/test_merchant_daily_mission_loop.py tests/test_dealflow_conversation_mission.py tests/test_mission_telemetry.py tests/test_mission_telemetry_daily.py tests/test_mission_telemetry_dealflow.py -q` -> `41 passed`
+
+**Negative proof:**
+- This is not speculative parity work; the slice opened with an explicit KeyError on missing preview output and closed only after deterministic preview emission.
+- This is not orchestrator/mission-harness widening; patch scope is stability preview normalization plus telemetry merge point only.
+
+**Drift metrics (session-local):**
+- IDS: 0.0
+- GAR: 100% for Option B fail-first workflow
+- MFC: 100% (failing test evidence + minimal patch + focused + adjacent regressions + lineage entry)
+
+**Status:**
+- Option B stability preview parity slice closed and validated.
+
 ### Session XX: 2026-08-01T00:00:00Z - MR->T Mission Telemetry Integrity (Weekly Harness)
 
 **Objective:** Open and close the Mission-Result -> Telemetry Integrity slice with fail-test-first enforcement on fail-closed orchestrator integration failures.
